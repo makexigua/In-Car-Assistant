@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>车载 Agent 助手</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="topbar">
+        <div class="brand">
+          <span class="brand-mark" aria-hidden="true">A</span>
+          <div>
+            <h1>车载 Agent 助手</h1>
+            <p>问答助手</p>
+          </div>
+        </div>
+        <div id="connectionStatus" class="status-pill is-idle">未连接</div>
+      </header>
+
+      <section class="settings-panel" aria-label="连接设置">
+        <label class="field field-grow">
+          <span>后端地址</span>
+          <input
+            id="serverUrl"
+            type="text"
+            autocomplete="off"
+            placeholder="留空则自动使用当前域名"
+          />
+        </label>
+        <label class="field">
+          <span>用户标识</span>
+          <input id="senderId" type="text" autocomplete="off" />
+        </label>
+        <label class="switch">
+          <input id="enableDm" type="checkbox" checked />
+          <span>执行 DM</span>
+        </label>
+        <button id="reconnectButton" class="button secondary" type="button">重连</button>
+      </section>
+
+      <main id="messageList" class="message-list" aria-live="polite"></main>
+
+      <form id="chatForm" class="composer">
+        <textarea
+          id="queryInput"
+          rows="1"
+          placeholder="输入问题，例如：帮我查一下今天的天气"
+          autocomplete="off"
+        ></textarea>
+        <button
+          id="voiceButton"
+          class="button icon-button voice-button"
+          type="button"
+          aria-label="开始语音输入"
+          title="语音输入"
+        >
+          <svg class="voice-icon" viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M12 3a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V6a3 3 0 0 0-3-3Z" />
+            <path d="M5 11a1 1 0 1 1 2 0 5 5 0 0 0 10 0 1 1 0 1 1 2 0 7 7 0 0 1-6 6.92V20h3a1 1 0 1 1 0 2H8a1 1 0 1 1 0-2h3v-2.08A7 7 0 0 1 5 11Z" />
+          </svg>
+        </button>
+        <button id="sendButton" class="button primary" type="submit">发送</button>
+        <button id="clearButton" class="button icon-button" type="button" aria-label="清空对话">清空</button>
+        <div id="voiceStatus" class="voice-status" role="status" aria-live="polite"></div>
+      </form>
+    </div>
+
+    <script src="./app.js"></script>
+  </body>
+</html>
