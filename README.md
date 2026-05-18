@@ -45,6 +45,9 @@ cp .env.example .env
 
 重点变量：
 - `LLM_API_KEY` / `LLM_BASE_URL` / `DEFAULT_CHAT_MODEL`
+- `ARBITRATION_API_KEY` / `ARBITRATION_BASE_URL`（可选，不填则回退到 LLM 配置）
+- `REWRITE_API_KEY` / `REWRITE_BASE_URL`（可选，不填则回退到 LLM 配置）
+- `CHAT_API_KEY` / `CHAT_BASE_URL` / `CHAT_MODEL`（可选，不填则回退到 BOT_ 或 LLM_ 配置）
 - `REJECT_URL`（拒识服务）
 - `INTENT_URL`（意图召回服务）
 - `NLU_URL`（任务型 NLU 服务，通常是本地 `task` 服务）

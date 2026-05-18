@@ -1,6 +1,6 @@
 set -e
 
-ROOT_DIR="$(cd "$(dirname "$0")" && pwd)"
+ROOT_DIR="$(cd "$(dirname --"$0")" && pwd)"
 MAIN_DIR="$ROOT_DIR/main"
 TASK_DIR="$ROOT_DIR/task"
 KB_DIR="$ROOT_DIR/kb"
@@ -27,6 +27,8 @@ mkdir -p "$KB_DIR/log"
 
 # 说明：拒识服务和意图召回服务如果是外部服务，请先自行启动，
 # 并在 .env 里配置好 REJECT_URL / INTENT_URL。
+
+cp .env.example .env
 
 # 大模型nlu服务
 cd "$TASK_DIR/function_call"
