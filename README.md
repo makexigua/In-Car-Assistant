@@ -6,6 +6,7 @@
 ├── main/      # 主链路：请求入口与全链路编排
 ├── task/      # 任务型链路：意图、槽位、function calling、MCP
 ├── kb/        # 知识库链路：RAG 相关代码与数据
+├── main/skills/ # 主链路 skill 配置与执行器
 ├── web/       # 前端页面：简洁问答助手界面
 ├── server.sh  # 项目统一启动脚本（root）
 ├── .env       # 本地运行配置（API Key / 服务地址）
@@ -16,7 +17,9 @@
 ### main（主链路）
 - `start.py`：主入口（拒识 -> 改写 -> 仲裁 -> task/faq/chat）
 - `client/`：各子服务 API 调用封装（reject、rewrite、arbitration、nlu、rag、chat）
-- `prompts.py`：提示词配置
+- `skills/config/`：reject/rewrite/arbitration/chat 的 skill 配置
+- `skills/runtime.py`：skill 加载与统一大模型调用执行器
+- `prompts.py`：仅保留 task 子服务仍在使用的提示词
 - `utils/`：日志、redis、env 加载
 - 备注：`main/client/correlation.py`、`main/client/nlg.py` 已清理（主链路不再使用）
 
@@ -44,12 +47,12 @@ cp .env.example .env
 ```
 
 重点变量：
-- `LLM_API_KEY` / `LLM_BASE_URL` / `DEFAULT_CHAT_MODEL`
-- `ARBITRATION_API_KEY` / `ARBITRATION_BASE_URL`（可选，不填则回退到 LLM 配置）
-- `REWRITE_API_KEY` / `REWRITE_BASE_URL`（可选，不填则回退到 LLM 配置）
-- `CHAT_API_KEY` / `CHAT_BASE_URL` / `CHAT_MODEL`（可选，不填则回退到 BOT_ 或 LLM_ 配置）
-- `REJECT_BASE_URL` / `REJECT_API_KEY` / `REJECT_URL`（拒识服务）
-- 拒识调用规则：`REJECT_BASE_URL + REJECT_API_KEY` 都不为空走外接模型；否则走 `REJECT_URL` 本地模型
+- `LLM_API_KEY` / `LLM_BASE_URL`（main 主流程的 reject/rewrite/arbitration/chat 共用同一大模型 API）
+- `DEFAULT_CHAT_MODEL`
+- `REJECT_MODEL`（拒识模型名，不填则回退 `DEFAULT_CHAT_MODEL`）
+- `REWRITE_MODEL`（改写模型名，不填则回退 `DEFAULT_CHAT_MODEL`）
+- `ARBITRATION_MODEL`（仲裁模型名，不填则回退 `DEFAULT_CHAT_MODEL`）
+- `CHAT_MODEL`（闲聊模型名，不填则回退 `DEFAULT_CHAT_MODEL`）
 - `INTENT_URL`（意图召回服务）
 - `NLU_URL`（任务型 NLU 服务，通常是本地 `task` 服务）
 - `RAG_URL`（知识库问答服务）
@@ -77,7 +80,7 @@ bash server.sh
 2. 启动 `main/start.py`
 
 注意：
-- `REJECT_URL`、`INTENT_URL`、`RAG_URL` 指向的外部服务需要你提前启动好
+- `INTENT_URL`、`RAG_URL` 指向的外部服务需要你提前启动好
 - 若这些外部服务未启动，对应分支会失败或走兜底
 
 ### 4. 调用入口

@@ -2,6 +2,7 @@
 
 ### 目录约定
 - `main/`：主链路编排层（入口服务、拒识/改写/仲裁调度、task/faq/chat 路由）
+- `main/skills/`：主链路 skill 配置与执行器（reject/rewrite/arbitration/chat）
 - `task/`：任务型链路（意图召回、function calling、槽位抽取、DM/MCP）
 - `kb/`：知识库链路（RAG 数据、检索、重排、知识问答相关脚本）
 - `web/`：前端静态页面（简洁问答助手界面，默认按当前页面域名连接后端，带浏览器原生语音输入入口）

@@ -1,28 +1,19 @@
-# 作用：调用闲聊大模型并把流式返回切帧，供主链路实时下发给前端。
+# 作用：调用 chat skill 并把流式返回切帧，供主链路实时下发给前端。
 
 import json
-import os
 import re
 
-import prompts
-import requests
+from skills.runtime import call_skill, is_llm_ready
 from utils import logger
-from utils.env_loader import load_project_env
 from utils.redis_tool import RedisClient
 
 
+SKILL_NAME = "chat"
 MAX_HIS = 6
 TTL = 45
-REDIS_KEY = "voice:chat_history:{}"
 REQUEST_TIMEOUT = 30.0
+REDIS_KEY = "voice:chat_history:{}"
 _redis_client = RedisClient()
-
-
-load_project_env()
-CHAT_API_KEY = os.getenv("CHAT_API_KEY", os.getenv("BOT_API_KEY", os.getenv("LLM_API_KEY", "")))
-CHAT_BASE_URL = os.getenv("CHAT_BASE_URL", os.getenv("BOT_BASE_URL", os.getenv("LLM_BASE_URL", "")))
-CHAT_MODEL = os.getenv("CHAT_MODEL", os.getenv("BOT_MODEL", os.getenv("DEFAULT_CHAT_MODEL", "")))
-SYSTEM_PROMPT = prompts.BOT_CHAT_SYSTEM_PROMPT
 
 
 def _read_history(sender_id: str):
@@ -37,28 +28,23 @@ def _read_history(sender_id: str):
 
 
 def request_chat(query, sender_id, multiturn=True):
-    if not CHAT_BASE_URL or not CHAT_API_KEY:
-        logger.error("chat model config missing: need CHAT_BASE_URL and CHAT_API_KEY.")
+    if not is_llm_ready():
+        logger.error("chat skill config missing: need LLM_BASE_URL and LLM_API_KEY.")
         return "N"
 
     history = _read_history(sender_id) if multiturn else []
-
-    headers = {"Authorization": CHAT_API_KEY, "Content-Type": "application/json"}
-    messages = [{"role": "system", "content": SYSTEM_PROMPT}] + history + [{"role": "user", "content": query}]
+    messages = history + [{"role": "user", "content": query}]
     logger.info(f"request message:{messages}")
 
-    data = {"model": CHAT_MODEL, "messages": messages, "stream": True}
-
     try:
-        return requests.post(
-            CHAT_BASE_URL,
-            headers=headers,
-            data=json.dumps(data, ensure_ascii=False),
-            stream=True,
+        return call_skill(
+            skill_name=SKILL_NAME,
+            user_messages=messages,
             timeout=REQUEST_TIMEOUT,
+            stream_override=True,
         )
     except Exception as err:
-        logger.error(f"Bot Chat error:{err}")
+        logger.error(f"chat skill error:{err}")
         return "N"
 
 
@@ -95,7 +81,7 @@ def process_chat(response, query, sender_id):
         chunk_text += text
         answer += text
 
-        # 命中常见标点就尽快吐一帧，提升前端可读性。
+        # 命中常见标点尽快吐帧，前端感知会更顺滑。
         if re.search("，|。|？|；", text):
             yield chunk_text
             chunk_text = ""

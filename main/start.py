@@ -8,7 +8,6 @@ from typing import Any, Dict, Tuple
 from flask import Flask, jsonify, make_response
 from flask_socketio import SocketIO, emit
 
-import prompts
 from client.arbitration import request_arbitration
 from client.nlu import request_nlu
 from client.rag import request_rag
@@ -30,6 +29,7 @@ load_project_env()
 TTL = 40
 REDIS_KEY = "voice:last_service:{}"
 redis_client = RedisClient() 
+DEFAULT_NLG = os.getenv("DEFAULT_NLG", "抱歉，这个问题我还在学习中")
 
 # 输出意图映射。这里单独抽出来，后面要扩展新域不会改一堆 if/else。
 INTENT_META = {
@@ -210,7 +210,7 @@ def inference(req):
                     broadcast=False
                 )
             else:
-                send_msg(nlu_result, "REJECT", prompts.DEFAULT_NLG, 1, time.time() - begin, status=-1)
+                send_msg(nlu_result, "REJECT", DEFAULT_NLG, 1, time.time() - begin, status=-1)
                 logger.info(f"Query {query} has been rejected.")
 
         # 5) 知识库问答链路

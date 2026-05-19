@@ -1,30 +1,21 @@
-# 作用：调用仲裁大模型，把用户请求分流成 task / faq / chat 三类。
+# 作用：调用 arbitration skill，把用户请求分流成 task / faq / chat 三类。
 
 import json
-import os
 import time
 
-import prompts
 import requests
+from skills.runtime import call_skill, is_llm_ready
 from utils import logger
-from utils.env_loader import load_project_env
 from utils.redis_tool import RedisClient
 
 
+SKILL_NAME = "arbitration"
 TIMEOUT = 2.0
 MAX_HIS = 6
 TTL = 60
 CHUNK_SIZE = 1024
-MAX_TOKEN = 2048
 REDIS_KEY = "voice:arbitration_history:{}"
 _redis_client = RedisClient()
-
-
-load_project_env()
-ARBITRATION_API_KEY = os.getenv("ARBITRATION_API_KEY", os.getenv("LLM_API_KEY", ""))
-ARBITRATION_BASE_URL = os.getenv("ARBITRATION_BASE_URL", os.getenv("LLM_BASE_URL", ""))
-ARBITRATION_MODEL = os.getenv("ARBITRATION_MODEL", os.getenv("DEFAULT_CHAT_MODEL", ""))
-SYSTEM_PROMPT = prompts.ARBITRAION_SYSTEM_PROMPT
 
 
 def _read_history(sender_id: str):
@@ -40,7 +31,7 @@ def _read_history(sender_id: str):
 
 def _extract_code_from_stream(response: requests.Response) -> str:
     """
-    流式返回里只取第一个有效字符（A/B/C/D），保持和旧逻辑一致。
+    仲裁 skill 预期输出 A/B/C/D，这里只取第一段有效内容。
     """
     code = "A"
     for row in response.iter_lines(chunk_size=CHUNK_SIZE, decode_unicode=False, delimiter=b"\n"):
@@ -57,12 +48,10 @@ def _extract_code_from_stream(response: requests.Response) -> str:
         except Exception:
             continue
 
-        delta = payload.get("choices", [{}])[0].get("delta", {})
-        text = delta.get("content", "")
-        if not text:
-            continue
-        code = text
-        break
+        text = payload.get("choices", [{}])[0].get("delta", {}).get("content", "")
+        if text:
+            code = text
+            break
 
     return code
 
@@ -76,44 +65,32 @@ def _to_route(code: str) -> str:
 
 
 def request_arbitration(query, sender_id):
-    if not ARBITRATION_BASE_URL or not ARBITRATION_API_KEY:
-        logger.error("arbitration model config missing: need ARBITRATION_BASE_URL and ARBITRATION_API_KEY.")
+    if not is_llm_ready():
+        logger.error("arbitration skill config missing: need LLM_BASE_URL and LLM_API_KEY.")
         return "task"
-
-    headers = {
-        "Content-Type": "application/json",
-        "Authorization": ARBITRATION_API_KEY,
-    }
 
     start_time = time.time()
     history = _read_history(sender_id)
     history.append({"role": "user", "content": query})
 
-    body = {
-        "model": ARBITRATION_MODEL,
-        "messages": [{"role": "system", "content": SYSTEM_PROMPT}] + history,
-        "max_tokens": MAX_TOKEN,
-        "temperature": 0,
-        "stream": True,
-    }
-
     try:
-        response = requests.post(
-            ARBITRATION_BASE_URL,
-            headers=headers,
-            json=body,
-            stream=True,
+        response = call_skill(
+            skill_name=SKILL_NAME,
+            user_messages=history,
             timeout=TIMEOUT,
+            stream_override=True,
         )
         response.raise_for_status()
         code = _extract_code_from_stream(response)
-
         if code not in ["A", "B", "C", "D"]:
             code = "A"
 
         history.append({"role": "assistant", "content": code})
-        history_str = json.dumps(history[-MAX_HIS:], ensure_ascii=False)
-        _redis_client.set(REDIS_KEY.format(sender_id), history_str, ex=TTL)
+        _redis_client.set(
+            REDIS_KEY.format(sender_id),
+            json.dumps(history[-MAX_HIS:], ensure_ascii=False),
+            ex=TTL,
+        )
 
         route = _to_route(code)
         logger.info(
@@ -122,7 +99,7 @@ def request_arbitration(query, sender_id):
         )
         return route
     except Exception as err:
-        logger.info(f"Arbitration API error: {err}")
+        logger.error(f"Arbitration skill error: {err}")
         return "task"
 
 
