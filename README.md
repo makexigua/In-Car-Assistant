@@ -48,7 +48,8 @@ cp .env.example .env
 - `ARBITRATION_API_KEY` / `ARBITRATION_BASE_URL`（可选，不填则回退到 LLM 配置）
 - `REWRITE_API_KEY` / `REWRITE_BASE_URL`（可选，不填则回退到 LLM 配置）
 - `CHAT_API_KEY` / `CHAT_BASE_URL` / `CHAT_MODEL`（可选，不填则回退到 BOT_ 或 LLM_ 配置）
-- `REJECT_URL`（拒识服务）
+- `REJECT_BASE_URL` / `REJECT_API_KEY` / `REJECT_URL`（拒识服务）
+- 拒识调用规则：`REJECT_BASE_URL + REJECT_API_KEY` 都不为空走外接模型；否则走 `REJECT_URL` 本地模型
 - `INTENT_URL`（意图召回服务）
 - `NLU_URL`（任务型 NLU 服务，通常是本地 `task` 服务）
 - `RAG_URL`（知识库问答服务）

@@ -68,7 +68,7 @@ def build_nlu_template(query: str, trace_id: str, begin_ts: float) -> Dict[str, 
     """
     return {
         "query": query,
-        "tarce_id": trace_id,
+        "trace_id": trace_id,
         "intent": "",
         "intent_id": "",
         "function": "",
@@ -108,7 +108,7 @@ def is_reject_passed(reject_result: Any) -> bool:
     # 保守策略：未知值默认放行，避免误杀正常用户查询
     return True
 
-
+# frame:这一帧的文本内容  seq：帧序号,方便前端按顺序拼接。
 def send_msg(nlu_result, func, frame, seq, cost, status):
     intent, intent_id = INTENT_META.get(func, INTENT_META["REJECT"])
 
@@ -159,7 +159,6 @@ def handle_chat(nlu_result, query, sender_id, begin):
     else:
         logger.info(f"Chat cost time: {time.time() - begin}")
         return False, full_answer
-
 
 
 @socketio.on('request_nlu')
