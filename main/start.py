@@ -3,9 +3,9 @@ import json
 import os
 import time
 import traceback
-from typing import Any, Dict, Tuple
+from typing import Any, Dict
 
-from flask import Flask, jsonify, make_response
+from flask import Flask, jsonify, make_response, request
 from flask_socketio import SocketIO, emit
 
 from client.arbitration import request_arbitration
@@ -16,7 +16,7 @@ from client.rewrite import request_rewrite
 from client.stream_chat import process_chat, request_chat
 from utils import logger
 from utils.env_loader import load_project_env
-from utils.redis_tool import RedisClient
+from utils.session_memory import add_user_query, complete_answer, get_session_turns
 
 
 socketio = SocketIO(cors_allowed_origins='*', async_mode='threading')
@@ -26,12 +26,10 @@ socketio.init_app(app)
 
 
 load_project_env()
-TTL = 40
-REDIS_KEY = "voice:last_service:{}"
-redis_client = RedisClient() 
 DEFAULT_NLG = os.getenv("DEFAULT_NLG", "抱歉，这个问题我还在学习中")
+ENABLE_DEBUG_API = os.getenv("ENABLE_DEBUG_API", "false").strip().lower() in ("1", "true", "yes", "y")
 
-# 输出意图映射。这里单独抽出来，后面要扩展新域不会改一堆 if/else。
+
 INTENT_META = {
     "CHAT": ("闲聊百科", "439"),
     "REJECT": ("拒识", "440"),
@@ -47,6 +45,49 @@ def check():
         {'content-type': 'application/json'}
     )
     return response
+
+
+@app.route("/debug/session/<sender_id>", methods=["GET"])
+def debug_session(sender_id: str):
+    """
+    只读调试接口：查看某个 sender_id 的短期记忆内容。
+    默认关闭，需在 .env 里设置 ENABLE_DEBUG_API=true 才能访问。
+    """
+    if not ENABLE_DEBUG_API:
+        return make_response(
+            jsonify(error="debug api disabled"),
+            403,
+            {'content-type': 'application/json'}
+        )
+
+    include_pending_raw = request.args.get("include_pending", "true")
+    include_pending = str(include_pending_raw).strip().lower() in ("1", "true", "yes", "y")
+
+    limit_raw = request.args.get("limit", "3")
+    try:
+        limit = int(limit_raw)
+    except Exception:
+        limit = 3
+    # 避免一次性拉太多，调试接口最多返回 20 条。
+    limit = max(1, min(limit, 20))
+
+    turns = get_session_turns(
+        sender_id=sender_id,
+        limit=limit,
+        include_pending=include_pending,
+    )
+    response = {
+        "sender_id": sender_id,
+        "include_pending": include_pending,
+        "limit": limit,
+        "count": len(turns),
+        "turns": turns,
+    }
+    return make_response(
+        jsonify(response),
+        200,
+        {'content-type': 'application/json'}
+    )
 
 
 @socketio.on('connect')
@@ -75,22 +116,6 @@ def build_nlu_template(query: str, trace_id: str, begin_ts: float) -> Dict[str, 
         "slots": {},
         "cost": time.time() - begin_ts
     }
-
-
-def parse_last_info(sender_id: str) -> Tuple[str, str, str, str]:
-    """
-    读取并解析上一轮会话缓存。
-    格式：domain#query#reject#answer
-    """
-    raw = redis_client.get(REDIS_KEY.format(sender_id))
-    if not raw:
-        return "", "", "", ""
-
-    # answer 里可能包含 #，所以最多切 3 次，最后一个字段整体当 answer。
-    items = raw.split("#", 3)
-    if len(items) != 4:
-        return "", "", "", ""
-    return items[0], items[1], items[2], items[3]
 
 
 def is_reject_passed(reject_result: Any) -> bool:
@@ -134,7 +159,7 @@ def send_faq(nlu_result: Dict[str, Any], answer: str, begin: float) -> None:
     send_msg(nlu_result, "FAQ", answer, 1, time.time() - begin, status=2)
 
 
-def handle_chat(nlu_result, query, sender_id, begin):
+def handle_chat(nlu_result, query, sender_id, trace_id, begin):
 
     # 开始帧
     seq = 1
@@ -143,7 +168,7 @@ def handle_chat(nlu_result, query, sender_id, begin):
 
     # 中间帧
     full_answer = ""
-    chat_handler = request_chat(query, sender_id)
+    chat_handler = request_chat(query, sender_id, trace_id)
     for value in process_chat(chat_handler, query, sender_id):
         nlu_result_chat = copy.deepcopy(nlu_result)
         send_msg(nlu_result_chat, "CHAT", value, seq, time.time() - begin, status=1)
@@ -180,27 +205,33 @@ def inference(req):
         reject_result = request_reject(ori_query, trace_id)
         if not is_reject_passed(reject_result):
             send_msg(nlu_template, "REJECT", "", 1, time.time() - begin, status=-1)
-            redis_client.set(REDIS_KEY.format(sender_id), f"REJECT#{ori_query}#0#", ex=TTL)
             logger.info(f"Query {ori_query} rejected by reject model.")
             return
 
-        # 2) 改写：使用上一轮回复做指代消解。
-        _, _, _, last_answer = parse_last_info(sender_id)
-        query = request_rewrite(ori_query, last_answer, sender_id)
+        # 2) 拒识通过后先把本轮 query 写入短期记忆，answer 稍后回填。
+        add_user_query(sender_id, ori_query, trace_id)
 
-        # 3) 仲裁：按 task/faq/chat 三类分流。
-        arbitration_result = request_arbitration(query, sender_id)
+        # 3) 改写：只结合 Redis 中还没过期的历史轮次做指代消解。
+        query = request_rewrite(ori_query, sender_id, trace_id)
+
+        # 4) 仲裁：按 task/faq/chat 三类分流。
+        arbitration_result = request_arbitration(query, sender_id, trace_id)
 
         logger.info(
             f"TraceID:{trace_id}, query:{query}, arbitration result: {arbitration_result}, cost time: {time.time() - begin}")
 
-        # 4) 任务型对话链路
+        # 5) 任务型对话链路
         if arbitration_result == "task":
             nlu_result = request_nlu(query, trace_id, enable_dm)
             if nlu_result.get("function", "") not in ["Unknown"]:
-                # 如果有 nlg，就把它记入缓存，改写时能更好理解“它/这个”。
                 answer_for_next_round = nlu_result.get("nlg", "")
-                redis_client.set(REDIS_KEY.format(sender_id), f"SKILL#{query}#1#{answer_for_next_round}", ex=TTL)
+                complete_answer(
+                    sender_id=sender_id,
+                    trace_id=trace_id,
+                    route="task",
+                    answer=answer_for_next_round,
+                    query_fallback=ori_query,
+                )
                 emit(
                     "request_nlu",
                     json.dumps(
@@ -212,26 +243,63 @@ def inference(req):
             else:
                 send_msg(nlu_result, "REJECT", DEFAULT_NLG, 1, time.time() - begin, status=-1)
                 logger.info(f"Query {query} has been rejected.")
+                complete_answer(
+                    sender_id=sender_id,
+                    trace_id=trace_id,
+                    route="task",
+                    answer=DEFAULT_NLG,
+                    query_fallback=ori_query,
+                )
 
-        # 5) 知识库问答链路
+        # 6) 知识库问答链路
         elif arbitration_result == "faq":
             rag_result = request_rag(query, trace_id, sender_id)
             answer = rag_result.get("answer", "")
             if answer:
                 nlu_faq = build_nlu_template(ori_query, trace_id, begin)
                 send_faq(nlu_faq, answer, begin)
-                redis_client.set(REDIS_KEY.format(sender_id), f"FAQ#{query}#1#{answer}", ex=TTL)
+                complete_answer(
+                    sender_id=sender_id,
+                    trace_id=trace_id,
+                    route="faq",
+                    answer=answer,
+                    query_fallback=ori_query,
+                )
             else:
                 # FAQ 为空则回退闲聊兜底，保证用户有回复。
-                is_hit_chat, full_answer = handle_chat(nlu_template, query, sender_id, begin)
+                is_hit_chat, full_answer = handle_chat(
+                    nlu_template,
+                    query,
+                    sender_id,
+                    trace_id,
+                    begin,
+                )
                 if is_hit_chat:
-                    redis_client.set(REDIS_KEY.format(sender_id), f"CHAT#{query}#{reject_result}#{full_answer}", ex=TTL)
+                    complete_answer(
+                        sender_id=sender_id,
+                        trace_id=trace_id,
+                        route="chat",
+                        answer=full_answer,
+                        query_fallback=ori_query,
+                    )
 
-        # 6) 闲聊兜底链路
+        # 7) 闲聊兜底链路
         else:
-            is_hit_chat, full_answer = handle_chat(nlu_template, query, sender_id, begin)
+            is_hit_chat, full_answer = handle_chat(
+                nlu_template,
+                query,
+                sender_id,
+                trace_id,
+                begin,
+            )
             if is_hit_chat:
-                redis_client.set(REDIS_KEY.format(sender_id), f"CHAT#{query}#1#{full_answer}", ex=TTL)
+                complete_answer(
+                    sender_id=sender_id,
+                    trace_id=trace_id,
+                    route="chat",
+                    answer=full_answer,
+                    query_fallback=ori_query,
+                )
 
     except Exception as e:
         logger.error(

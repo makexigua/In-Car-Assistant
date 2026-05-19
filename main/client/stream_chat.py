@@ -5,34 +5,28 @@ import re
 
 from skills.runtime import call_skill, is_llm_ready
 from utils import logger
-from utils.redis_tool import RedisClient
+from utils.session_memory import build_role_history
 
 
 SKILL_NAME = "chat"
-MAX_HIS = 6
-TTL = 45
+MAX_HIS = 3
 REQUEST_TIMEOUT = 30.0
-REDIS_KEY = "voice:chat_history:{}"
-_redis_client = RedisClient()
 
 
-def _read_history(sender_id: str):
-    history_str = _redis_client.get(REDIS_KEY.format(sender_id))
-    if not history_str:
-        return []
-    try:
-        history = json.loads(history_str)
-        return history if isinstance(history, list) else []
-    except Exception:
-        return []
-
-
-def request_chat(query, sender_id, multiturn=True):
+def request_chat(query, sender_id, trace_id="", multiturn=True):
     if not is_llm_ready():
         logger.error("chat skill config missing: need LLM_BASE_URL and LLM_API_KEY.")
         return "N"
 
-    history = _read_history(sender_id) if multiturn else []
+    history = (
+        build_role_history(
+            sender_id=sender_id,
+            limit=MAX_HIS,
+            exclude_trace_id=trace_id,
+        )
+        if multiturn
+        else []
+    )
     messages = history + [{"role": "user", "content": query}]
     logger.info(f"request message:{messages}")
 
@@ -42,6 +36,7 @@ def request_chat(query, sender_id, multiturn=True):
             user_messages=messages,
             timeout=REQUEST_TIMEOUT,
             stream_override=True,
+            trace_id=trace_id,
         )
     except Exception as err:
         logger.error(f"chat skill error:{err}")
@@ -97,15 +92,11 @@ def process_chat(response, query, sender_id):
         yield chunk_text
 
     logger.info(f"bot_Chat Result: {answer}")
-    history = _read_history(sender_id)
-    history.append({"role": "user", "content": query})
-    history.append({"role": "assistant", "content": answer})
-    _redis_client.set(REDIS_KEY.format(sender_id), json.dumps(history[-MAX_HIS:], ensure_ascii=False), ex=TTL)
 
 
 if __name__ == "__main__":
     while True:
         query = input("-->")
-        res = request_chat(query, "1", True)
+        res = request_chat(query, "1", multiturn=True)
         for frame in process_chat(res, query, "1"):
             print(frame)

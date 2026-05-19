@@ -6,27 +6,13 @@ import time
 import requests
 from skills.runtime import call_skill, is_llm_ready
 from utils import logger
-from utils.redis_tool import RedisClient
+from utils.session_memory import build_role_history
 
 
 SKILL_NAME = "arbitration"
 TIMEOUT = 2.0
-MAX_HIS = 6
-TTL = 60
+MAX_HIS = 3
 CHUNK_SIZE = 1024
-REDIS_KEY = "voice:arbitration_history:{}"
-_redis_client = RedisClient()
-
-
-def _read_history(sender_id: str):
-    history_str = _redis_client.get(REDIS_KEY.format(sender_id))
-    if not history_str:
-        return []
-    try:
-        history = json.loads(history_str)
-        return history if isinstance(history, list) else []
-    except Exception:
-        return []
 
 
 def _extract_code_from_stream(response: requests.Response) -> str:
@@ -64,13 +50,17 @@ def _to_route(code: str) -> str:
     return "task"
 
 
-def request_arbitration(query, sender_id):
+def request_arbitration(query, sender_id, trace_id=""):
     if not is_llm_ready():
         logger.error("arbitration skill config missing: need LLM_BASE_URL and LLM_API_KEY.")
         return "task"
 
     start_time = time.time()
-    history = _read_history(sender_id)
+    history = build_role_history(
+        sender_id=sender_id,
+        limit=MAX_HIS,
+        exclude_trace_id=trace_id,
+    )
     history.append({"role": "user", "content": query})
 
     try:
@@ -79,18 +69,12 @@ def request_arbitration(query, sender_id):
             user_messages=history,
             timeout=TIMEOUT,
             stream_override=True,
+            trace_id=trace_id,
         )
         response.raise_for_status()
         code = _extract_code_from_stream(response)
         if code not in ["A", "B", "C", "D"]:
             code = "A"
-
-        history.append({"role": "assistant", "content": code})
-        _redis_client.set(
-            REDIS_KEY.format(sender_id),
-            json.dumps(history[-MAX_HIS:], ensure_ascii=False),
-            ex=TTL,
-        )
 
         route = _to_route(code)
         logger.info(

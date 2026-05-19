@@ -45,6 +45,12 @@ class RedisClient(object):
         '''get data by key
         '''
         return self._connection.get(key)
+
+    @operator_status
+    def delete(self, key):
+        '''delete data by key
+        '''
+        return self._connection.delete(key)
  
  
  
