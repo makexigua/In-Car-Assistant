@@ -1,4 +1,4 @@
-# 车载 Agent 重构版
+# 车载三路决策Agent：Task/RAG/Chat
 
 ## 文件结构
 ```text
@@ -17,7 +17,7 @@
 ### main（主链路）
 - `start.py`：主入口（拒识 -> 改写 -> 仲裁 -> task/faq/chat）
 - `client/`：各子服务 API 调用封装（reject、rewrite、arbitration、nlu、rag、chat）
-- `skills/config/`：reject/rewrite/arbitration/chat 的 skill 配置
+- `skills/config/`：reject/rewrite/arbitration/chat 的 skill markdown（YAML 头 + prompt 正文）
 - `skills/runtime.py`：skill 加载与统一大模型调用执行器
 - `prompts.py`：仅保留 task 子服务仍在使用的提示词
 - `utils/`：日志、redis、env 加载
@@ -103,4 +103,5 @@ GET /health
 
 ## 说明
 - 当前目录已清理测试代码与 benchmark 脚本，保留生产链路与必要配置。
+- `main/config.ini` 与 `kb/config.ini` 已移除，配置入口统一为项目根目录 `.env`。
 - 若你调整了目录结构或链路逻辑，请同步更新 `AGENTS.md` 和本 README。
