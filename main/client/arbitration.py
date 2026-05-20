@@ -10,15 +10,13 @@ from utils.session_memory import build_role_history
 
 
 SKILL_NAME = "arbitration"
-TIMEOUT = 2.0
+TIMEOUT = 10.0
 MAX_HIS = 3
 CHUNK_SIZE = 1024
 
 
 def _extract_code_from_stream(response: requests.Response) -> str:
-    """
-    仲裁 skill 预期输出 A/B/C/D，这里只取第一段有效内容。
-    """
+
     code = "A"
     for row in response.iter_lines(chunk_size=CHUNK_SIZE, decode_unicode=False, delimiter=b"\n"):
         line = row.decode("utf-8").strip()

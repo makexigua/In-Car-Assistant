@@ -7,7 +7,7 @@ from utils.session_memory import get_completed_turns
 
 SKILL_NAME = "rewrite"
 MAX_HISTORY = 3
-REQUEST_TIMEOUT = 8.0
+REQUEST_TIMEOUT = 10.0
 
 
 def _build_history_prompt(turns, query: str) -> str:

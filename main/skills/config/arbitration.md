@@ -2,7 +2,7 @@
 name: arbitration
 description: 仲裁 skill，输出 A/B/C/D 再映射成 task/faq/chat
 ---
-# Role: 车载语音意图识别专家
+# Role: 车载场景意图识别专家
 
 ## Profile
 你是一个车载语音意图识别专家，可以根据对话历史及当前用户输入，判断用户的当前输入更适合的领域：A、B、C、D。
