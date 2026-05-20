@@ -9,15 +9,11 @@
  */
 
 const STORAGE_KEYS = {
-  serverUrl: "agent_web_server_url",
-  senderId: "agent_web_sender_id",
   enableDm: "agent_web_enable_dm",
 };
 
 const dom = {
   connectionStatus: document.querySelector("#connectionStatus"),
-  serverUrl: document.querySelector("#serverUrl"),
-  senderId: document.querySelector("#senderId"),
   enableDm: document.querySelector("#enableDm"),
   reconnectButton: document.querySelector("#reconnectButton"),
   messageList: document.querySelector("#messageList"),
@@ -39,6 +35,8 @@ let speechBaseText = "";
 let speechSupported = false;
 const messageStore = new Map();
 const THINKING_TEXT = "正在思考";
+const PAGE_OPEN_TS = Date.now();
+const SESSION_SENDER_ID = `web-${PAGE_OPEN_TS}`;
 const SpeechRecognitionConstructor =
   globalThis.SpeechRecognition || globalThis.webkitSpeechRecognition || null;
 
@@ -282,13 +280,11 @@ function getAutoServerUrl() {
 }
 
 function getActiveServerUrl() {
-  const configuredUrl = normalizeBaseUrl(dom.serverUrl.value);
-  return configuredUrl || getAutoServerUrl();
+  return getAutoServerUrl();
 }
 
 function createDefaultSenderId() {
-  const randomId = globalThis.crypto?.randomUUID?.() || Date.now().toString(36);
-  return `web-${randomId}`;
+  return SESSION_SENDER_ID;
 }
 
 function createTraceId() {
@@ -296,13 +292,6 @@ function createTraceId() {
 }
 
 function initSettings() {
-  dom.serverUrl.value = localStorage.getItem(STORAGE_KEYS.serverUrl) || "";
-
-  const storedSenderId = localStorage.getItem(STORAGE_KEYS.senderId);
-  const senderId = storedSenderId || createDefaultSenderId();
-  localStorage.setItem(STORAGE_KEYS.senderId, senderId);
-  dom.senderId.value = senderId;
-
   const storedEnableDm = localStorage.getItem(STORAGE_KEYS.enableDm);
   dom.enableDm.checked = storedEnableDm === null ? true : storedEnableDm === "true";
 }
@@ -326,16 +315,6 @@ function bindEvents() {
 
   dom.voiceButton.addEventListener("click", () => {
     toggleVoiceInput();
-  });
-
-  dom.serverUrl.addEventListener("change", () => {
-    localStorage.setItem(STORAGE_KEYS.serverUrl, normalizeBaseUrl(dom.serverUrl.value));
-    connectToBackend();
-  });
-
-  dom.senderId.addEventListener("change", () => {
-    localStorage.setItem(STORAGE_KEYS.senderId, dom.senderId.value.trim() || createDefaultSenderId());
-    dom.senderId.value = localStorage.getItem(STORAGE_KEYS.senderId);
   });
 
   dom.enableDm.addEventListener("change", () => {
@@ -464,8 +443,8 @@ function connectToBackend() {
   }
 
   if (!serverUrl) {
-    setConnectionStatus("offline", "未配置");
-    appendSystemMessage("当前页面不是通过域名打开的，请填写后端地址后再重连。");
+    setConnectionStatus("offline", "不可连接");
+    appendSystemMessage("当前页面请通过 http/https 域名打开，系统会自动连接同域后端。");
     return;
   }
 
@@ -524,7 +503,7 @@ async function sendQuery() {
 
   const payload = {
     query,
-    sender_id: dom.senderId.value.trim() || createDefaultSenderId(),
+    sender_id: createDefaultSenderId(),
     trace_id: createTraceId(),
     enable_dm: dom.enableDm.checked,
   };
@@ -752,7 +731,7 @@ function clearMessages() {
   activeAssistantMessageId = "";
   waitingForReply = false;
   setComposerBusy(false);
-  appendMessage("assistant", "你好，我是车载 Agent 助手。");
+  appendMessage("assistant", "您好，我是Model 3智能助手，有什么可以帮您？");
 }
 
 function autoResizeTextarea() {

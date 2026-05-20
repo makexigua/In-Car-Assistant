@@ -125,8 +125,8 @@ textarea {
 
 .settings-panel {
   padding: 12px 20px;
-  display: grid;
-  grid-template-columns: minmax(220px, 1fr) minmax(160px, 240px) auto auto;
+  display: flex;
+  justify-content: flex-end;
   gap: 12px;
   align-items: end;
   border-bottom: 1px solid var(--line);
