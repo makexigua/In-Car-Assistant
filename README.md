@@ -4,25 +4,13 @@
 ```text
 .
 ├── main/      # 主链路：请求入口与全链路编排
-├── task/      # 任务型链路：进程内召回 + function calling + MCP + NLG
+├── task/      # 任务型链路：进程内召回 + 识别 + 执行分流 + NLG
 ├── kb/        # 知识库链路：RAG 相关代码与数据
 ├── web/       # 前端页面：简洁问答助手界面
 ├── .env       # 本地运行配置（API Key / 服务地址）
 ├── .env.example
 └── AGENTS.md  # 项目速览与维护约定
 ```
-
-## Task 链路（进程内）
-
-现在 `task` 分支不再通过本地 `NLU_URL` 发 HTTP 请求，而是由主进程直接调用 `task/pipeline.py`：
-
-1. 从全量 `function` 中做轻量召回，取 top-5 候选函数；  
-2. 调用全局同一套 LLM API（`LLM_BASE_URL + LLM_API_KEY`）做 function calling，完成意图确认和槽位抽取；  
-3. 对槽位执行旧链路兼容处理：按 `slot_intent.json` 做槽位名映射，并补回数值、位置、极值等归一化逻辑；  
-4. 如果命中天气/地图/音乐场景，走 MCP 工具调用，其中天气会补回日期解析；  
-5. 最后再调用同一套 LLM API 生成 NLG 回复。  
-
-这样做的好处是链路更短（少一层本地 HTTP 转发），部署也更简单（不需要单独起本地 NLU 服务进程）。
 
 ## 短期记忆机制
 
@@ -48,3 +36,34 @@
    也就是只用已完成的有效上下文，不用半成品数据。
 
 一句话总结：这是一个“单 key、短窗口、按 trace_id 回填”的会话记忆机制，既能保证多轮改写连续性，又把状态复杂度控制在最小范围。
+
+
+## Task 链路
+
+```text
+task/
+├── pipeline.py            # 主编排：召回 -> 识别 -> 执行 -> NLG
+├── settings.py            # task 公共配置和路径
+├── llm_client.py          # 统一大模型 API 调用
+├── config/
+│   ├── class.txt
+│   └── slot_intent.json
+├── intent/
+│   ├── recall.py          # 意图召回
+│   └── recognize.py       # 意图识别 + 槽位抽取
+├── execute/
+│   ├── function_registry.py
+│   ├── slot_normalizer.py
+│   ├── local_executor.py  # 车载本地功能执行描述
+│   ├── mcp_executor.py    # 地图/音乐/天气等 MCP 执行
+│   └── nlg.py
+└── mcp_core/
+```
+
+当前约定：`execute/function_registry.py` 只保留车控高频本地功能（空调/座舱/灯光车身/系统常用/通信），媒体播放与导航地图相关能力统一走 MCP。
+
+1. 从全量 `function` 中做轻量召回，取 top-5 候选函数；  
+2. 调用 LLM API 做 function calling，完成意图确认和槽位抽取；  
+3. 对槽位执行旧链路兼容处理：按 `slot_intent.json` 做槽位名映射，并补回数值、位置、极值等归一化逻辑；  
+4. 执行阶段按能力分流：车载本地功能生成本地动作描述；媒体、导航、天气等外部能力走 MCP，其中天气会补回日期解析；  
+5. 最后再调用同一套 LLM API 生成 NLG 回复。  
