@@ -5,12 +5,14 @@ import json
 import os
 import re
 import time
+from datetime import datetime
 from dataclasses import dataclass
 from difflib import SequenceMatcher
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 import requests
+from sinan import Sinan
 
 from main.utils import logger
 from main.utils.env_loader import load_project_env
@@ -30,6 +32,7 @@ RECALL_TOP_K = int(os.getenv("TASK_RECALL_TOP_K", "5"))
 DEFAULT_NLG = os.getenv("DEFAULT_NLG", "抱歉，这个问题我还在学习中")
 
 CLASS_FILE = TASK_DIR / "config" / "class.txt"
+SLOT_INTENT_FILE = TASK_DIR / "config" / "slot_intent.json"
 AMP_SERVER_PATH = str(TASK_DIR / "mcp_core" / "amp_server.py")
 MUSIC_SERVER_PATH = str(TASK_DIR / "mcp_core" / "music_server.py")
 
@@ -88,6 +91,29 @@ def _build_intent_maps() -> Tuple[Dict[str, str], Dict[str, str], Dict[str, str]
 
 
 ID2FUNC, FUNC2NAME, NAME2ID = _build_intent_maps()
+SLOT_MAP = json.loads(SLOT_INTENT_FILE.read_text(encoding="utf-8"))
+
+POSITION_MAP = {
+    "主驾": "MAIN",
+    "副驾": "VICE",
+    "左侧": "LEFT",
+    "右侧": "RIGHT",
+    "前排": "FRONT",
+    "后排": "REAR",
+    "左后": "LEFT_REAR",
+    "右后": "RIGHT_REAR",
+    "主对角": "MAIN_DIAGONAL",
+    "副对角": "VICE_DIAGONAL",
+    "所有": "ALL",
+    "吹脚": "FOOT",
+    "吹脸": "FACE",
+    "吹窗": "WINDOW",
+    "吹脸吹脚": "FACE_AND_FOOT",
+    "吹窗吹脚": "WINDOW_AND_FOOT",
+    "左前": "MAIN",
+    "右前": "VICE",
+    "主副驾": "FRONT",
+}
 
 
 def _tokenize(text: str) -> Set[str]:
@@ -236,6 +262,83 @@ def _parse_tool_call_arguments(raw_args: Any) -> Dict[str, Any]:
     return {}
 
 
+def _safe_to_float(raw_value: str) -> Optional[float]:
+    """
+    只做受控数字解析，不用 eval，避免把任意表达式喂给解释器。
+    """
+    value = (raw_value or "").strip()
+    if not value:
+        return None
+
+    # 允许纯数字、小数和简单分数写法，例如 1/2。
+    if re.fullmatch(r"-?\d+(\.\d+)?", value):
+        return float(value)
+    if re.fullmatch(r"-?\d+(\.\d+)?/-?\d+(\.\d+)?", value):
+        left, right = value.split("/", 1)
+        denominator = float(right)
+        if denominator == 0:
+            return None
+        return float(left) / denominator
+    return None
+
+
+def _normalize_slot_value(slot_key: str, slot_value: Any) -> Any:
+    """
+    兼容旧 task 链路的槽位值归一化逻辑。
+    """
+    if slot_value is None:
+        return slot_value
+
+    value = str(slot_value).strip()
+    if not value:
+        return value
+
+    key_lower = slot_key.lower()
+    if key_lower in {"number", "ratio"}:
+        if "%" in value:
+            number = _safe_to_float(value.replace("%", ""))
+            return number / 100 if number is not None else value
+        number = _safe_to_float(value)
+        return number if number is not None else value
+
+    if slot_key in {"POSITION", "位置"}:
+        return POSITION_MAP.get(value, value)
+
+    if slot_key == "对话时长":
+        return value.replace("秒", "")
+
+    if slot_key == "Extreme":
+        if value in {"最大", "最高", "最强", "最亮", "最热"}:
+            return "最大"
+        if value in {"最小", "最低", "最弱", "最暗", "最冷"}:
+            return "最小"
+
+    return value
+
+
+def _normalize_slots(function_name: str, raw_slots: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    兼容旧 slot_process.py：
+    1) 先按 slot_intent.json 做槽位名映射
+    2) 再做数值/位置/极值归一化
+    """
+    if not isinstance(raw_slots, dict):
+        return {}
+
+    slot_rules = SLOT_MAP.get(function_name)
+    normalized: Dict[str, Any] = {}
+    for raw_key, raw_value in raw_slots.items():
+        if raw_value in (None, "", "不限"):
+            continue
+
+        mapped_key = raw_key
+        if isinstance(slot_rules, dict):
+            mapped_key = slot_rules.get(raw_key, raw_key)
+
+        normalized[mapped_key] = _normalize_slot_value(mapped_key, raw_value)
+    return normalized
+
+
 def _normalize_nlu_result(function_name: str, slots: Dict[str, Any], query: str, trace_id: str) -> Dict[str, Any]:
     intent_name = FUNC2NAME.get(function_name, "未知")
     intent_id = NAME2ID.get(intent_name, "")
@@ -279,7 +382,8 @@ def _function_call_infer(query: str, tools: List[Dict[str, Any]]) -> Tuple[str, 
     first_call = tool_calls[0]
     function_obj = first_call.get("function", {})
     function_name = str(function_obj.get("name", "")).strip() or "Unknown"
-    slots = _parse_tool_call_arguments(function_obj.get("arguments", "{}"))
+    raw_slots = _parse_tool_call_arguments(function_obj.get("arguments", "{}"))
+    slots = _normalize_slots(function_name, raw_slots)
     return function_name, slots
 
 
@@ -324,8 +428,15 @@ def _try_call_mcp(function_name: str, slots: Dict[str, Any]) -> Optional[Any]:
     if function_name in {"Query_Weather", "Query_Timely_Weather"}:
         city = str(slots.get("city", "北京") or "北京")
         date = str(slots.get("date", "")).strip()
+        if date:
+            try:
+                date_parsed = Sinan(date).parse()
+                if "datetime" in date_parsed:
+                    date = date_parsed["datetime"][0].split(" ")[0]
+            except Exception as err:
+                logger.error(f"weather date parse failed: {err}")
         if not date:
-            date = time.strftime("%Y-%m-%d", time.localtime())
+            date = datetime.now().strftime("%Y-%m-%d")
         return _run_async(
             _call_mcp_tool(
                 server_path=AMP_SERVER_PATH,

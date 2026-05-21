@@ -15,7 +15,7 @@
 5. `task` 调 `task` 服务，`faq` 调 `RAG_URL`，`chat` 走闲聊流式返回
 
 ### 启动关系
-- `main` 依赖 `task/function_call/chatnlu_infer.py`
+- `main` 依赖 `task/pipeline.py`
 - 拒识服务、意图召回服务、RAG 服务是外部服务，通过 URL 对接
 - 项目统一启动脚本在根目录：`server.sh`
 - `server.sh` 优先使用根目录 `.venv/bin/python`
