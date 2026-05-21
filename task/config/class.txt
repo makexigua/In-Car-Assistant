@@ -1,5 +1,4 @@
 0:未知:Unknown
-
 1:打开空调:Open_Air_Condition
 2:关闭空调:Close_Air_Condition
 3:打开除雾:Open_Air_Condition_Defog
@@ -16,7 +15,6 @@
 14:降低空调风力:Dec_Air_Condition_Wind
 15:设置空调风向:Set_Wind_Direction
 16:取消空调风向:Cancel_Wind_Direction
-
 17:打开座椅加热:Open_Heated_Seat
 18:关闭座椅加热:Close_Heated_Seat
 19:设置座椅温度:Set_Seat_Temperature
@@ -32,19 +30,16 @@
 29:设置座椅按摩:Set_Seat_Massage
 30:调大座椅按摩:Inc_Seat_Massage
 31:调低座椅按摩:Dec_Seat_Massage
-
 32:打开方向盘加热:Open_Heated_Steer
 33:关闭方向盘加热:Close_Heated_Steer
 34:设置方向盘温度:Set_Steer_Temperature
 35:调高方向盘温度:Inc_Steer_Temperature
 36:调低方向盘温度:Dec_Steer_Temperature
-
 37:打开HUD:Open_HUD
 38:关闭HUD:Close_HUD
 39:HUD亮度调到指定值:Adjust_Hud_Brightness
 40:调高HUD亮度:Inc_HUD_Brightness
 41:调低HUD亮度:Dec_HUD_Brightness
-
 42:打开天窗:Open_Dormer
 43:关闭天窗:Close_Dormer
 44:打开车窗:Open_Window
@@ -102,4 +97,9 @@
 96:查看拨打记录:View_Send_Record
 97:查看已接来电:View_Already_Call
 98:查看未接来电:View_Not_Call
-
+99:天气查询:Query_Weather
+100:地点搜索:Search_POI
+101:地点详情查询:Search_POI_Detail
+102:公交路径规划:Route_Transit_Integrated
+103:附近地点搜索:Search_Around_POI
+104:驾车路径规划:Route_Driving

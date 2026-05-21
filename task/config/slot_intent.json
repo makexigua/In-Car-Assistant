@@ -236,5 +236,37 @@
     "View_Send_Record": "无",
     "View_Already_Call": "无",
     "View_Not_Call": "无",
-    "Unknown": "无"
+    "Unknown": "无",
+    "Query_Weather": {
+        "city": "城市",
+        "date": "日期"
+    },
+    "Search_POI": {
+        "keywords": "关键词",
+        "city": "城市"
+    },
+    "Search_POI_Detail": {
+        "id": "POI_ID",
+        "keywords": "关键词",
+        "city": "城市"
+    },
+    "Route_Transit_Integrated": {
+        "origin": "起点坐标",
+        "destination": "终点坐标",
+        "city": "起点城市",
+        "cityd": "终点城市"
+    },
+    "Search_Around_POI": {
+        "center": "中心地点",
+        "keywords": "关键词",
+        "city": "城市",
+        "radius": "范围"
+    },
+    "Route_Driving": {
+        "origin": "起点",
+        "destination": "终点",
+        "city": "起点城市",
+        "cityd": "终点城市",
+        "strategy": "路线偏好"
+    }
 }

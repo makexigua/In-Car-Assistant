@@ -1687,6 +1687,190 @@ FUNCTION_TOOLS = [
     {
         "type": "function",
         "function": {
+            "name": "Query_Weather",
+            "description": "查询指定城市在指定日期的天气信息。日期可为空，空则默认今天。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "city": {
+                        "type": "string",
+                        "description": "城市名，如北京、上海。若无可为空，默认北京。"
+                    },
+                    "date": {
+                        "type": "string",
+                        "description": "日期或自然语言日期，如2026-05-21、明天。可为空。"
+                    }
+                },
+                "required": [
+                    "city",
+                    "date"
+                ]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "Search_POI",
+            "description": "根据关键词搜索地点（POI），可选按城市缩小范围。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "keywords": {
+                        "type": "string",
+                        "description": "地点关键词，如虹桥火车站、人民广场。"
+                    },
+                    "city": {
+                        "type": "string",
+                        "description": "可选，城市名。"
+                    }
+                },
+                "required": [
+                    "keywords",
+                    "city"
+                ]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "Search_POI_Detail",
+            "description": "查询地点详情。可直接传 POI id；若只有地点名称，系统会先搜索地点再自动查询详情。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "description": "POI 唯一 id，可为空。"
+                    },
+                    "keywords": {
+                        "type": "string",
+                        "description": "地点关键词，如故宫、外滩。可为空。"
+                    },
+                    "city": {
+                        "type": "string",
+                        "description": "可选，城市名。"
+                    }
+                },
+                "required": [
+                    "id",
+                    "keywords",
+                    "city"
+                ]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "Route_Transit_Integrated",
+            "description": "根据起终点经纬度查询公交/地铁/火车等综合公共交通路径。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "origin": {
+                        "type": "string",
+                        "description": "起点经纬度，格式: lng,lat"
+                    },
+                    "destination": {
+                        "type": "string",
+                        "description": "终点经纬度，格式: lng,lat"
+                    },
+                    "city": {
+                        "type": "string",
+                        "description": "可选，起点城市。跨城建议填写。"
+                    },
+                    "cityd": {
+                        "type": "string",
+                        "description": "可选，终点城市。跨城建议填写。"
+                    }
+                },
+                "required": [
+                    "origin",
+                    "destination",
+                    "city",
+                    "cityd"
+                ]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "Search_Around_POI",
+            "description": "查询某个地点附近的目标地点，例如故宫附近美食、医院、停车场。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "center": {
+                        "type": "string",
+                        "description": "中心地点名称，如故宫、虹桥火车站。"
+                    },
+                    "keywords": {
+                        "type": "string",
+                        "description": "附近要找的类型，如美食、咖啡、停车场。"
+                    },
+                    "city": {
+                        "type": "string",
+                        "description": "可选，城市名。"
+                    },
+                    "radius": {
+                        "type": "string",
+                        "description": "可选，搜索半径（米），默认2000。"
+                    }
+                },
+                "required": [
+                    "center",
+                    "keywords",
+                    "city",
+                    "radius"
+                ]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "Route_Driving",
+            "description": "查询驾车路径。支持输入地址，系统会自动解析为坐标再规划路径。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "origin": {
+                        "type": "string",
+                        "description": "起点地址或经纬度。"
+                    },
+                    "destination": {
+                        "type": "string",
+                        "description": "终点地址或经纬度。"
+                    },
+                    "city": {
+                        "type": "string",
+                        "description": "可选，起点城市。"
+                    },
+                    "cityd": {
+                        "type": "string",
+                        "description": "可选，终点城市。"
+                    },
+                    "strategy": {
+                        "type": "string",
+                        "description": "可选，路径偏好策略。"
+                    }
+                },
+                "required": [
+                    "origin",
+                    "destination",
+                    "city",
+                    "cityd",
+                    "strategy"
+                ]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "Unknown",
             "description": "无意义的，或未指明部件的命令，比如要左边的、关了吧。不包括确认、没错、取消等命令如果输入需要搜索xx，则不命中此函数一切和闲聊，询问歌曲演唱者、百科知识，娱乐知识，生活知识，诗词（含更换），旅游攻略，地理问题，数学运算，单位换算，旅游或音乐的推荐或建议，人物介绍，笑话，翻译等相关的问题。包括去某地N天的旅行、出差等路书设计、路书中某天路线设计修改或途径点变更等。如果仅是规划路线，则同导航去某地，不属于该类。如果输入中有怎么、为什么等词语，必须命中此函数，不能命中其他函数",
             "parameters": {
