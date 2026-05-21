@@ -2,14 +2,11 @@
 
 import json
 import os
-
 import requests
 from utils import logger
 from utils.env_loader import load_project_env
 
-
 REQUEST_TIMEOUT = 8.0
-
 
 load_project_env()
 NLU_URL = os.getenv("NLU_URL", "")

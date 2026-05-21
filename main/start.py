@@ -9,11 +9,11 @@ from flask import Flask, jsonify, make_response, request
 from flask_socketio import SocketIO, emit
 
 from client.arbitration import request_arbitration
-from client.nlu import request_nlu
+from main.client.task import request_nlu
 from client.rag import request_rag
 from client.reject import request_reject
 from client.rewrite import request_rewrite
-from client.stream_chat import process_chat, request_chat
+from main.client.chat import process_chat, request_chat
 from utils import logger
 from utils.env_loader import load_project_env
 from utils.session_memory import add_user_query, complete_answer, get_session_turns
