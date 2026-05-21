@@ -1,8 +1,9 @@
 # Web / API
 flask
-flask_socketio
+flask-socketio
 fastapi
 uvicorn
+sse-starlette
 requests
 
 # Config / infra
@@ -27,19 +28,16 @@ langchain-text-splitters
 # Knowledge base / retrieval
 jieba
 pymongo
-pymilvus
-pymilvus.model
-pymupdf
+pymilvus[model]
+PyMuPDF
 
-# ML
+# ML / embedding
 pandas
 scikit-learn
 sentence-transformers
 transformers
 torch
-sse-starlette
 
 # MCP / tools
 mcp
-qqmusic_api
 sinan
