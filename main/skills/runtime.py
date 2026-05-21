@@ -9,7 +9,7 @@ from typing import Any, Dict, List, Optional, Tuple
 import requests
 import yaml
 
-from utils.env_loader import load_project_env
+from main.utils.env_loader import load_project_env
 
 
 load_project_env()

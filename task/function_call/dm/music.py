@@ -1,5 +1,5 @@
-from client.nlg import request_nlg
-from mcp_core.music_server import search_music
+from task.client.nlg import request_nlg
+from task.mcp_core.music_server import search_music
 
 
 async def process(func_name, query, slots):
@@ -19,6 +19,5 @@ async def process(func_name, query, slots):
     nlg = request_nlg(query, tool_response)
 
     return (tool_response, nlg)
-
 
 

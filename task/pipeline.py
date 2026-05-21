@@ -11,15 +11,15 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 import requests
-from dotenv import load_dotenv
 
 from main.utils import logger
+from main.utils.env_loader import load_project_env
 from task.function_call.function import tools1
+from task.mcp_core.mcp_client import MCPClient
 
 
-# 统一从项目根目录 .env 读取配置，避免 task 分支再读 task/.env。
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
-load_dotenv(PROJECT_ROOT / ".env", override=False)
+load_project_env()
+TASK_DIR = Path(__file__).resolve().parent
 
 LLM_BASE_URL = os.getenv("LLM_BASE_URL", "")
 LLM_API_KEY = os.getenv("LLM_API_KEY", "")
@@ -29,9 +29,9 @@ REQUEST_TIMEOUT = float(os.getenv("TASK_LLM_TIMEOUT", "12"))
 RECALL_TOP_K = int(os.getenv("TASK_RECALL_TOP_K", "5"))
 DEFAULT_NLG = os.getenv("DEFAULT_NLG", "抱歉，这个问题我还在学习中")
 
-CLASS_FILE = PROJECT_ROOT / "task" / "config" / "class.txt"
-AMP_SERVER_PATH = str(PROJECT_ROOT / "task" / "mcp_core" / "amp_server.py")
-MUSIC_SERVER_PATH = str(PROJECT_ROOT / "task" / "mcp_core" / "music_server.py")
+CLASS_FILE = TASK_DIR / "config" / "class.txt"
+AMP_SERVER_PATH = str(TASK_DIR / "mcp_core" / "amp_server.py")
+MUSIC_SERVER_PATH = str(TASK_DIR / "mcp_core" / "music_server.py")
 
 # 这个系统提示词用于“意图确认 + 槽位抽取”，和原 task 服务保持同一目标。
 TASK_SYSTEM_PROMPT = (
@@ -288,9 +288,6 @@ async def _call_mcp_tool(server_path: str, function_name: str, tool_args: Dict[s
     单次 MCP 调用：连接 -> 调工具 -> 清理。
     这样不会在服务里残留长期子进程。
     """
-    # 懒加载，避免可选依赖缺失时影响非 MCP 请求。
-    from task.mcp_core.mcp_client import MCPClient
-
     client = MCPClient()
     try:
         await client.connect_to_server(server_path)
@@ -403,12 +400,9 @@ def _generate_nlg(query: str, function_name: str, slots: Dict[str, Any], tool_re
 
 
 def run_task_pipeline(query: str, trace_id: str, enable_dm: bool = True) -> Dict[str, Any]:
-    """
-    task 链路统一入口，供 main/client/task.py 调用。
-    """
+
     begin = time.time()
 
-    # 基础配置兜底检查，避免静默失败。
     if not LLM_BASE_URL or not LLM_API_KEY:
         logger.error("task pipeline config missing: LLM_BASE_URL or LLM_API_KEY is empty")
         return {

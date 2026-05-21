@@ -4,9 +4,9 @@ import json
 import time
 
 import requests
-from skills.runtime import call_skill, is_llm_ready
-from utils import logger
-from utils.session_memory import build_role_history
+from main.skills.runtime import call_skill, is_llm_ready
+from main.utils import logger
+from main.utils.session_memory import build_role_history
 
 
 SKILL_NAME = "arbitration"

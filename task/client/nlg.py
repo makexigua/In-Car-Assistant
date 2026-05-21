@@ -3,9 +3,9 @@ import json
 import time
 import os
 from typing import Any
-import prompts
-from utils import logger
-from utils.env_loader import load_project_env
+from main.prompts import NLG_PROMPT
+from task.utils import logger
+from task.utils.env_loader import load_project_env
 
 
 TIMEOUT = 10.0
@@ -13,7 +13,6 @@ load_project_env()
 DOUBAO_API_KEY = os.getenv("LLM_API_KEY", os.getenv("API_KEY", ""))
 DOUBAO_URL = os.getenv("LLM_BASE_URL", os.getenv("BASE_URL", ""))
 NLG_MODEL = os.getenv("NLG_MODEL", os.getenv("DEFAULT_CHAT_MODEL", "ep-20241203180921-h2kgz"))
-NLG_PROMPT = prompts.NLG_PROMPT
 
 
 def request_nlg(query, tool_response):

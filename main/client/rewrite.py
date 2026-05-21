@@ -1,8 +1,8 @@
 # 作用：调用 rewrite skill 做指代消解，把用户原问题改成更完整可理解的问题。
 
-from skills.runtime import call_skill, is_llm_ready
-from utils import logger
-from utils.session_memory import get_completed_turns
+from main.skills.runtime import call_skill, is_llm_ready
+from main.utils import logger
+from main.utils.session_memory import get_completed_turns
 
 
 SKILL_NAME = "rewrite"

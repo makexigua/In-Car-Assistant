@@ -2,8 +2,8 @@ import json
 from pathlib import Path
 from datetime import datetime
 from sinan import Sinan
-from client.nlg import request_nlg
-from mcp_core.mcp_client import MCPClient
+from task.client.nlg import request_nlg
+from task.mcp_core.mcp_client import MCPClient
 
 
 mcp_client = MCPClient()
@@ -29,6 +29,5 @@ async def process(func_name, query, slots):
     nlg = request_nlg(query, tool_response)
 
     return (tool_response, nlg)
-
 
 

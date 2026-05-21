@@ -5,8 +5,8 @@ import os
 from typing import Any, Dict
 
 import requests
-from utils import logger
-from utils.env_loader import load_project_env
+from main.utils import logger
+from main.utils.env_loader import load_project_env
 
 
 load_project_env()

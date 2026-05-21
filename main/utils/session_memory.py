@@ -4,8 +4,8 @@ import json
 import time
 from typing import Any, Dict, List, Optional
 
-from utils import logger
-from utils.redis_tool import RedisClient
+from main.utils import logger
+from main.utils.redis_tool import RedisClient
 
 
 SESSION_KEY = "voice:session:{}"

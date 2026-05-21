@@ -6,13 +6,13 @@ from pathlib import Path
 
 import requests
 import uvicorn
-import prompts
-from slot_process import intent_slot
-from function import tools1
+from main.prompts import NLU_SYSTEM_PROMPT
+from task.function_call.slot_process import intent_slot
+from task.function_call.function import tools1
 from fastapi import FastAPI, Request
-from utils import logger
-from utils.env_loader import load_project_env
-from dm.factory import DMFactory
+from task.utils import logger
+from task.utils.env_loader import load_project_env
+from task.function_call.dm.factory import DMFactory
 
 
 ## 创建FastAPI应用
@@ -111,7 +111,7 @@ def predict(query, trace_id):
             else:
                 continue
 
-        header = [{"role": "system", "content": prompts.NLU_SYSTEM_PROMPT}]
+        header = [{"role": "system", "content": NLU_SYSTEM_PROMPT}]
         context = [{"role": "user", "content": query}]
         messages = header + context
         start_time = time.time()

@@ -2,8 +2,8 @@
 
 import re
 
-from skills.runtime import call_skill, is_llm_ready
-from utils import logger
+from main.skills.runtime import call_skill, is_llm_ready
+from main.utils import logger
 
 
 SKILL_NAME = "reject"
