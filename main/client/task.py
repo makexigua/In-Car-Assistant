@@ -1,36 +1,37 @@
-# 作用：调用任务型 NLU 服务，返回意图、槽位和 function-calling 结果。
+# 作用：调用进程内 task pipeline，完成任务意图识别、MCP 调用和 NLG 输出（不再走本地 NLU HTTP 服务）。
 
-import json
 import os
-import requests
+import sys
+from pathlib import Path
+
 from utils import logger
 from utils.env_loader import load_project_env
 
-REQUEST_TIMEOUT = 8.0
-
 load_project_env()
-NLU_URL = os.getenv("NLU_URL", "")
+
+# 让 main 入口也能稳定导入根目录下的 task 模块。
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.append(str(PROJECT_ROOT))
+
+from task.pipeline import run_task_pipeline
 
 
 def request_nlu(query, trace_id, enable_dm=True):
-    if not NLU_URL:
-        logger.error("NLU_URL is empty.")
+    if enable_dm is None:
+        enable_dm = True
+
+    # 兼容旧调用：如果 task 侧缺模型配置，给出明确日志。
+    if not os.getenv("LLM_BASE_URL", "") or not os.getenv("LLM_API_KEY", ""):
+        logger.error("LLM_BASE_URL or LLM_API_KEY is empty.")
         return {}
 
-    payload = json.dumps(
-        {"query": query, "trace_id": trace_id, "enable_dm": enable_dm},
-        ensure_ascii=False,
-    )
-    headers = {"Content-Type": "application/json"}
-
     try:
-        response = requests.post(NLU_URL, headers=headers, data=payload, timeout=REQUEST_TIMEOUT)
-        response.raise_for_status()
-        res = response.json()
+        res = run_task_pipeline(query=query, trace_id=trace_id, enable_dm=enable_dm)
         logger.info(f"NLU模型的输出：{res}")
         return res
     except Exception as err:
-        logger.error(f"call NLU failed:{err}")
+        logger.error(f"run task pipeline failed: {err}")
         return {}
 
 

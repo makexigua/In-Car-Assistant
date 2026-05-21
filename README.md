@@ -4,13 +4,24 @@
 ```text
 .
 ├── main/      # 主链路：请求入口与全链路编排
-├── task/      # 任务型链路：意图、槽位、function calling、MCP
+├── task/      # 任务型链路：进程内召回 + function calling + MCP + NLG
 ├── kb/        # 知识库链路：RAG 相关代码与数据
 ├── web/       # 前端页面：简洁问答助手界面
 ├── .env       # 本地运行配置（API Key / 服务地址）
 ├── .env.example
 └── AGENTS.md  # 项目速览与维护约定
 ```
+
+## Task 链路（进程内）
+
+现在 `task` 分支不再通过本地 `NLU_URL` 发 HTTP 请求，而是由主进程直接调用 `task/pipeline.py`：
+
+1. 从全量 `function` 中做轻量召回，取 top-5 候选函数；  
+2. 调用全局同一套 LLM API（`LLM_BASE_URL + LLM_API_KEY`）做 function calling，完成意图确认和槽位抽取；  
+3. 如果命中天气/地图/音乐场景，走 MCP 工具调用；  
+4. 最后再调用同一套 LLM API 生成 NLG 回复。  
+
+这样做的好处是链路更短（少一层本地 HTTP 转发），部署也更简单（不需要单独起本地 NLU 服务进程）。
 
 ## 短期记忆机制
 

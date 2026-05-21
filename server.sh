@@ -25,20 +25,14 @@ export no_proxy="$NO_PROXY"
 mkdir -p "$MAIN_DIR/log"
 mkdir -p "$KB_DIR/log"
 
-# 说明：拒识服务和意图召回服务如果是外部服务，请先自行启动，
-# 并在 .env 里配置好 REJECT_URL / INTENT_URL。
+# 说明：请先在 .env 配置好统一大模型参数（LLM_BASE_URL / LLM_API_KEY / DEFAULT_CHAT_MODEL）。
+# FAQ 分支依赖的 RAG 服务如果是独立进程，也需要提前启动并配置 RAG_URL。
 
 cp .env.example .env
 
-# 大模型nlu服务
-cd "$TASK_DIR/function_call"
-PYTHONPATH="$TASK_DIR:$MAIN_DIR:$PYTHONPATH" nohup "$PYTHON_BIN" chatnlu_infer.py > "$MAIN_DIR/log/nlu.log" 2>&1 &
-echo "启动NLU服务.."
-sleep 5
-
 # 入口服务 
 cd "$MAIN_DIR"
-PYTHONPATH="$MAIN_DIR:$PYTHONPATH" nohup "$PYTHON_BIN" start.py > "$MAIN_DIR/log/start.log" 2>&1 &
+PYTHONPATH="$ROOT_DIR:$MAIN_DIR:$TASK_DIR:$PYTHONPATH" nohup "$PYTHON_BIN" start.py > "$MAIN_DIR/log/start.log" 2>&1 &
 echo "启动入口服务.."
 sleep 5
 
