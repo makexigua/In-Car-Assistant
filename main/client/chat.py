@@ -1,7 +1,10 @@
-# 作用：调用 chat skill 并把流式返回切帧，供主链路实时下发给前端。
+# 作用：封装 chat skill 调用与流式切帧逻辑，供主链路做闲聊兜底输出。
 
+import copy
 import json
 import re
+import time
+from typing import Any, Callable, Dict, Tuple
 
 from main.skills.runtime import call_skill, is_llm_ready
 from main.utils import logger
@@ -92,6 +95,42 @@ def process_chat(response, query, sender_id):
         yield chunk_text
 
     logger.info(f"bot_Chat Result: {answer}")
+
+
+def handle_chat_stream(
+    nlu_result: Dict[str, Any],
+    query: str,
+    sender_id: str,
+    trace_id: str,
+    begin: float,
+    send_msg_fn: Callable[[Dict[str, Any], str, str, int, float, int], None],
+) -> Tuple[bool, str]:
+    """
+    闲聊链路统一处理：
+    - 先发开始帧
+    - 再按 chunk 发中间帧
+    - 最后发结束帧
+    """
+    seq = 1
+    nlu_result_begin = copy.deepcopy(nlu_result)
+    send_msg_fn(nlu_result_begin, "CHAT", "", seq, time.time() - begin, status=0)
+
+    full_answer = ""
+    chat_handler = request_chat(query, sender_id, trace_id)
+    for value in process_chat(chat_handler, query, sender_id):
+        nlu_result_chat = copy.deepcopy(nlu_result)
+        send_msg_fn(nlu_result_chat, "CHAT", value, seq, time.time() - begin, status=1)
+        seq += 1
+        full_answer += value
+        logger.info(f"Chat Frame:{seq}, content:{value}")
+
+    if seq > 1:
+        send_msg_fn(nlu_result_begin, "CHAT", "", seq, time.time() - begin, status=2)
+        logger.info(f"Chat cost time: {time.time() - begin}")
+        return True, full_answer
+
+    logger.info(f"Chat cost time: {time.time() - begin}")
+    return False, full_answer
 
 
 if __name__ == "__main__":

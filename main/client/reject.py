@@ -42,6 +42,24 @@ def request_reject(query, trace_id):
         return "是"
 
 
+def is_reject_passed(reject_result) -> bool:
+    """
+    拒识结果兼容处理：
+    - 支持 0/1
+    - 支持 是/否
+    - 支持 true/false、pass/reject 等英文写法
+    """
+    value = str(reject_result).strip().lower()
+    pass_values = {"1", "是", "true", "yes", "y", "pass", "合法"}
+    reject_values = {"0", "否", "false", "no", "n", "reject", "非法"}
+    if value in pass_values:
+        return True
+    if value in reject_values:
+        return False
+    # 保守策略：未知值默认放行，避免误杀正常用户查询。
+    return True
+
+
 if __name__ == "__main__":
     while True:
         query = input("Input:")

@@ -1,4 +1,3 @@
-import copy
 import json
 import os
 import time
@@ -11,9 +10,9 @@ from flask_socketio import SocketIO, emit
 from main.client.arbitration import request_arbitration
 from main.client.task import request_nlu
 from main.client.rag import request_rag
-from main.client.reject import request_reject
+from main.client.reject import is_reject_passed, request_reject
 from main.client.rewrite import request_rewrite
-from main.client.chat import process_chat, request_chat
+from main.client.chat import handle_chat_stream
 from main.utils import logger
 from main.utils.env_loader import load_project_env
 from main.utils.session_memory import add_user_query, complete_answer, get_session_turns
@@ -118,21 +117,6 @@ def build_nlu_template(query: str, trace_id: str, begin_ts: float) -> Dict[str, 
     }
 
 
-def is_reject_passed(reject_result: Any) -> bool:
-    """
-    拒识结果兼容处理。
-    老服务可能返回 0/1，也可能返回 是/否，所以统一在入口做归一。
-    """
-    value = str(reject_result).strip().lower()
-    pass_values = {"1", "是", "true", "yes", "y", "pass", "合法"}
-    reject_values = {"0", "否", "false", "no", "n", "reject", "非法"}
-    if value in pass_values:
-        return True
-    if value in reject_values:
-        return False
-    # 保守策略：未知值默认放行，避免误杀正常用户查询
-    return True
-
 # frame:这一帧的文本内容  seq：帧序号,方便前端按顺序拼接。
 def send_msg(nlu_result, func, frame, seq, cost, status):
     intent, intent_id = INTENT_META.get(func, INTENT_META["REJECT"])
@@ -157,33 +141,6 @@ def send_faq(nlu_result: Dict[str, Any], answer: str, begin: float) -> None:
     FAQ 非流式场景：走单帧输出，客户端处理更简单。
     """
     send_msg(nlu_result, "FAQ", answer, 1, time.time() - begin, status=2)
-
-
-def handle_chat(nlu_result, query, sender_id, trace_id, begin):
-
-    # 开始帧
-    seq = 1
-    nlu_result_begin = copy.deepcopy(nlu_result)
-    send_msg(nlu_result_begin, "CHAT", "", seq, time.time() - begin, status=0)
-
-    # 中间帧
-    full_answer = ""
-    chat_handler = request_chat(query, sender_id, trace_id)
-    for value in process_chat(chat_handler, query, sender_id):
-        nlu_result_chat = copy.deepcopy(nlu_result)
-        send_msg(nlu_result_chat, "CHAT", value, seq, time.time() - begin, status=1)
-        seq += 1
-        full_answer += value
-        logger.info(f"Chat Frame:{seq},content:{value}")
-
-    # 结束帧
-    if seq > 1:
-        send_msg(nlu_result_begin, "CHAT", "", seq, time.time() - begin, status=2)
-        logger.info(f"Chat cost time: {time.time() - begin}")
-        return True, full_answer
-    else:
-        logger.info(f"Chat cost time: {time.time() - begin}")
-        return False, full_answer
 
 
 @socketio.on('request_nlu')
@@ -267,12 +224,13 @@ def inference(req):
                 )
             else:
                 # FAQ 为空则回退闲聊兜底，保证用户有回复。
-                is_hit_chat, full_answer = handle_chat(
+                is_hit_chat, full_answer = handle_chat_stream(
                     nlu_template,
                     query,
                     sender_id,
                     trace_id,
                     begin,
+                    send_msg,
                 )
                 if is_hit_chat:
                     complete_answer(
@@ -285,12 +243,13 @@ def inference(req):
 
         # 7) 闲聊兜底链路
         else:
-            is_hit_chat, full_answer = handle_chat(
+            is_hit_chat, full_answer = handle_chat_stream(
                 nlu_template,
                 query,
                 sender_id,
                 trace_id,
                 begin,
+                send_msg,
             )
             if is_hit_chat:
                 complete_answer(
