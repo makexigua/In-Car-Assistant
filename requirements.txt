@@ -27,6 +27,7 @@ langchain-text-splitters
 
 # Knowledge base / retrieval
 jieba
+rank-bm25
 pymongo
 pymilvus[model]
 PyMuPDF

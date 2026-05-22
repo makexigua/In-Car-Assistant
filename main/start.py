@@ -8,7 +8,7 @@ from flask import Flask, jsonify, make_response, request
 from flask_socketio import SocketIO, emit
 
 from main.client.arbitration import request_arbitration
-from main.client.task import request_nlu
+from main.client.task import request_task
 from main.client.rag import request_rag
 from main.client.reject import is_reject_passed, request_reject
 from main.client.rewrite import request_rewrite
@@ -30,9 +30,10 @@ ENABLE_DEBUG_API = os.getenv("ENABLE_DEBUG_API", "false").strip().lower() in ("1
 
 
 INTENT_META = {
-    "CHAT": ("闲聊百科", "439"),
-    "REJECT": ("拒识", "440"),
-    "FAQ": ("知识库问答", "441"),
+    "REJECT": ("拒识", "400"),
+    "TASK": ("任务执行", "401"),
+    "FAQ": ("知识库问答", "402"),
+    "CHAT": ("闲聊百科", "403"),
 }
 
 
@@ -102,7 +103,7 @@ def disconnect_msg():
     logger.info('client disconnected.')
 
 
-def build_nlu_template(query: str, trace_id: str, begin_ts: float) -> Dict[str, Any]:
+def build_response_template(query: str, trace_id: str, begin_ts: float) -> Dict[str, Any]:
     """
     统一返回模板，避免每条分支自己拼导致字段不一致。
     """
@@ -113,37 +114,41 @@ def build_nlu_template(query: str, trace_id: str, begin_ts: float) -> Dict[str, 
         "intent_id": "",
         "function": "",
         "slots": {},
+        "route": "",
         "cost": time.time() - begin_ts
     }
 
 
 # frame:这一帧的文本内容  seq：帧序号,方便前端按顺序拼接。
-def send_msg(nlu_result, func, frame, seq, cost, status):
-    intent, intent_id = INTENT_META.get(func, INTENT_META["REJECT"])
+def send_msg(response_payload, route, frame, seq, cost, status):
+    route = (route or "").upper()
+    intent, intent_id = INTENT_META.get(route, INTENT_META["REJECT"])
 
-    nlu_result["intent"] = intent
-    nlu_result["intent_id"] = intent_id
-    nlu_result["func"] = func
-    nlu_result["frame"] = frame
-    nlu_result["seq"] = seq
-    nlu_result["cost"] = cost
-    nlu_result["status"] = status
-
+    # 如果不是 TASK，直接覆盖 intent/intent_id
+    if route != "TASK" or not response_payload.get("intent"):
+        response_payload["intent"] = intent
+        response_payload["intent_id"] = intent_id
+    # 如果是 TASK，优先保留 task pipeline 给出的细粒度 intent，只在缺失时补 intent_id
+    elif not response_payload.get("intent_id"):
+        response_payload["intent_id"] = intent_id
+    response_payload["route"] = route.lower()
+    response_payload["frame"] = frame
+    response_payload["seq"] = seq
+    response_payload["cost"] = cost
+    response_payload["status"] = status
     emit(
-        "request_nlu",
-        json.dumps(nlu_result, ensure_ascii=False),
+        "request_agent",
+        json.dumps(response_payload, ensure_ascii=False),
         broadcast=False
     )
 
 
-def send_faq(nlu_result: Dict[str, Any], answer: str, begin: float) -> None:
-    """
-    FAQ 非流式场景：走单帧输出，客户端处理更简单。
-    """
-    send_msg(nlu_result, "FAQ", answer, 1, time.time() - begin, status=2)
+def send_faq(response_payload: Dict[str, Any], answer: str, begin: float) -> None:
+    # FAQ 非流式场景：走单帧输出，客户端处理更简单。
+    send_msg(response_payload, "FAQ", answer, 1, time.time() - begin, status=2)
 
 
-@socketio.on('request_nlu')
+@socketio.on('request_agent')
 def inference(req):
     begin = time.time()
     json_info = json.loads(req)
@@ -152,7 +157,7 @@ def inference(req):
     sender_id = json_info.get("sender_id", "test")
     trace_id = json_info.get("trace_id", "123")
 
-    nlu_template = build_nlu_template(query, trace_id, begin)
+    response_template = build_response_template(query, trace_id, begin)
     try:
         ori_query = (query or "").strip()
         logger.session.trace_id = trace_id
@@ -161,7 +166,7 @@ def inference(req):
         # 1) 拒识优先：先判非法，再做后续重模型调用。
         reject_result = request_reject(ori_query, trace_id)
         if not is_reject_passed(reject_result):
-            send_msg(nlu_template, "REJECT", "", 1, time.time() - begin, status=-1)
+            send_msg(response_template, "REJECT", "", 1, time.time() - begin, status=-1)
             logger.info(f"Query {ori_query} rejected by reject model.")
             return
 
@@ -179,9 +184,9 @@ def inference(req):
 
         # 5) 任务型对话链路
         if arbitration_result == "task":
-            nlu_result = request_nlu(query, trace_id, enable_dm)
-            if nlu_result.get("function", "") not in ["Unknown"]:
-                answer_for_next_round = nlu_result.get("nlg", "")
+            response_payload = request_task(query, trace_id, enable_dm)
+            if response_payload.get("function", "Unknown") not in ["Unknown", ""]:
+                answer_for_next_round = response_payload.get("nlg", "") or DEFAULT_NLG
                 complete_answer(
                     sender_id=sender_id,
                     trace_id=trace_id,
@@ -189,16 +194,17 @@ def inference(req):
                     answer=answer_for_next_round,
                     query_fallback=ori_query,
                 )
-                emit(
-                    "request_nlu",
-                    json.dumps(
-                        nlu_result,
-                        ensure_ascii=False
-                    ),
-                    broadcast=False
+                # task 也走统一帧协议：单帧结束态，前端无需再区分第二种包格式。
+                send_msg(
+                    response_payload,
+                    "TASK",
+                    answer_for_next_round,
+                    1,
+                    time.time() - begin,
+                    status=2,
                 )
             else:
-                send_msg(nlu_result, "REJECT", DEFAULT_NLG, 1, time.time() - begin, status=-1)
+                send_msg(response_payload, "REJECT", DEFAULT_NLG, 1, time.time() - begin, status=-1)
                 logger.info(f"Query {query} has been rejected.")
                 complete_answer(
                     sender_id=sender_id,
@@ -213,8 +219,8 @@ def inference(req):
             rag_result = request_rag(query, trace_id, sender_id)
             answer = rag_result.get("answer", "")
             if answer:
-                nlu_faq = build_nlu_template(ori_query, trace_id, begin)
-                send_faq(nlu_faq, answer, begin)
+                faq_payload = build_response_template(ori_query, trace_id, begin)
+                send_faq(faq_payload, answer, begin)
                 complete_answer(
                     sender_id=sender_id,
                     trace_id=trace_id,
@@ -225,7 +231,7 @@ def inference(req):
             else:
                 # FAQ 为空则回退闲聊兜底，保证用户有回复。
                 is_hit_chat, full_answer = handle_chat_stream(
-                    nlu_template,
+                    response_template,
                     query,
                     sender_id,
                     trace_id,
@@ -244,7 +250,7 @@ def inference(req):
         # 7) 闲聊兜底链路
         else:
             is_hit_chat, full_answer = handle_chat_stream(
-                nlu_template,
+                response_template,
                 query,
                 sender_id,
                 trace_id,
@@ -265,7 +271,7 @@ def inference(req):
             'TraceID:{}, Internal Server Error!'.format(trace_id))
         logger.error('{}'.format(e))
         traceback.print_exc()
-        send_msg(nlu_template, "REJECT", "", 1, time.time() - begin, status=-1)
+        send_msg(response_template, "REJECT", "", 1, time.time() - begin, status=-1)
 
 if __name__ == "__main__":
     socketio.run(

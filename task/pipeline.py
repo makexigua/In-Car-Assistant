@@ -8,7 +8,7 @@ from task.execute.local_executor import build_local_action
 from task.execute.mcp_executor import execute_mcp_function, is_mcp_function
 from task.execute.nlg import generate_nlg
 from task.intent.recall import recall_top_tools
-from task.intent.recognize import build_nlu_result, recognize_intent_and_slots
+from task.intent.recognize import build_task_result, recognize_intent_and_slots
 from task.llm_client import is_llm_ready
 from task.settings import DEFAULT_NLG, RECALL_TOP_K
 
@@ -48,7 +48,7 @@ def run_task_pipeline(query: str, trace_id: str, enable_dm: bool = True) -> Dict
     try:
         candidate_tools = recall_top_tools(query, RECALL_TOP_K)
         function_name, slots = recognize_intent_and_slots(query, candidate_tools)
-        result = build_nlu_result(function_name, slots, query, trace_id)
+        result = build_task_result(function_name, slots, query, trace_id)
 
         execution = _dispatch_execution(function_name, slots, enable_dm)
         result["executor"] = execution.get("executor", "none")

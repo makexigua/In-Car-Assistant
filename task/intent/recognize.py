@@ -1,4 +1,4 @@
-# 作用：基于候选 function 做意图识别和槽位抽取，并输出标准 NLU 结果。
+# 作用：基于候选 function 做意图识别和槽位抽取，并输出标准任务解析结果。
 
 import json
 from typing import Any, Dict, List, Tuple
@@ -79,7 +79,7 @@ def recognize_intent_and_slots(query: str, candidate_tools: List[Dict[str, Any]]
     return function_name, normalize_slots(function_name, raw_slots)
 
 
-def build_nlu_result(function_name: str, slots: Dict[str, Any], query: str, trace_id: str) -> Dict[str, Any]:
+def build_task_result(function_name: str, slots: Dict[str, Any], query: str, trace_id: str) -> Dict[str, Any]:
     intent_name = FUNC2NAME.get(function_name, "未知")
     intent_id = NAME2ID.get(intent_name, "")
     return {

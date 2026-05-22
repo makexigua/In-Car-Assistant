@@ -12,6 +12,37 @@
 └── AGENTS.md     # 项目速览与维护约定
 ```
 
+## KB 目录（重构后）
+
+```text
+kb/
+├── data/
+│   ├── raw/                  # 原始数据（PDF、停用词）
+│   ├── scripts/              # 数据处理脚本（build_index、semantic_chunk）
+│   ├── processed/
+│   │   ├── docs/             # 预处理文档 pkl
+│   │   ├── images/           # 从手册抽取的图片
+│   │   └── index/            # 检索索引产物（bm25/milvus/faiss）
+│   ├── qa_pairs/             # QA 训练数据
+│   ├── rerank_data/          # 重排训练数据
+│   └── summary_data/         # 摘要训练数据
+├── retrieval/
+│   ├── recall/               # 召回（BM25、Milvus）
+│   ├── rerank/               # 重排（BGE）
+│   ├── postprocess.py        # 引用页码、相关图片后处理
+│   └── pipeline_cli.py       # 命令行联调脚本
+└── src/                      # 公共模块与兼容层
+```
+
+## KB 执行顺序（离线建库）
+
+1. 启动语义切块服务（只用于数据预处理阶段）  
+   `python kb/data/scripts/semantic_chunk.py`
+2. 跑建库脚本（解析 PDF -> 清洗 -> 切分 -> 写 Mongo -> 建 BM25/Milvus 索引）  
+   `python kb/data/scripts/build_index.py`
+3. 命令行联调召回重排  
+   `python kb/retrieval/pipeline_cli.py`
+
 ## 短期记忆机制
 
 短期记忆统一放在 Redis 的一个 key 里：`voice:session:{sender_id}`。  

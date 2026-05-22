@@ -98,7 +98,7 @@ def process_chat(response, query, sender_id):
 
 
 def handle_chat_stream(
-    nlu_result: Dict[str, Any],
+    response_payload: Dict[str, Any],
     query: str,
     sender_id: str,
     trace_id: str,
@@ -112,20 +112,20 @@ def handle_chat_stream(
     - 最后发结束帧
     """
     seq = 1
-    nlu_result_begin = copy.deepcopy(nlu_result)
-    send_msg_fn(nlu_result_begin, "CHAT", "", seq, time.time() - begin, status=0)
+    response_payload_begin = copy.deepcopy(response_payload)
+    send_msg_fn(response_payload_begin, "CHAT", "", seq, time.time() - begin, status=0)
 
     full_answer = ""
     chat_handler = request_chat(query, sender_id, trace_id)
     for value in process_chat(chat_handler, query, sender_id):
-        nlu_result_chat = copy.deepcopy(nlu_result)
-        send_msg_fn(nlu_result_chat, "CHAT", value, seq, time.time() - begin, status=1)
+        response_payload_chat = copy.deepcopy(response_payload)
+        send_msg_fn(response_payload_chat, "CHAT", value, seq, time.time() - begin, status=1)
         seq += 1
         full_answer += value
         logger.info(f"Chat Frame:{seq}, content:{value}")
 
     if seq > 1:
-        send_msg_fn(nlu_result_begin, "CHAT", "", seq, time.time() - begin, status=2)
+        send_msg_fn(response_payload_begin, "CHAT", "", seq, time.time() - begin, status=2)
         logger.info(f"Chat cost time: {time.time() - begin}")
         return True, full_answer
 

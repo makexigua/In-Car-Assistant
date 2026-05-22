@@ -1,4 +1,4 @@
-# 作用：调用进程内 task pipeline，完成任务意图识别、MCP 调用和 NLG 输出（不再走本地 NLU HTTP 服务）。
+# 作用：调用进程内 task pipeline，完成任务意图识别、MCP 调用和 NLG 输出（不再走本地任务 HTTP 服务）。
 
 import os
 
@@ -9,7 +9,7 @@ from task.pipeline import run_task_pipeline
 load_project_env()
 
 
-def request_nlu(query, trace_id, enable_dm=True):
+def request_task(query, trace_id, enable_dm=True):
     if enable_dm is None:
         enable_dm = True
 
@@ -29,4 +29,4 @@ def request_nlu(query, trace_id, enable_dm=True):
 if __name__ == "__main__":
     while True:
         query = input("Input:")
-        print(request_nlu(query, "123"))
+        print(request_task(query, "123"))

@@ -5,7 +5,7 @@
  * 后端是 Flask-SocketIO，本文件实现了够当前项目使用的 Socket.IO polling 协议：
  * - 先用 Engine.IO 建立 polling 连接
  * - 再发送 Socket.IO 的默认命名空间连接包
- * - 发 request_nlu 事件，并监听同名事件返回
+ * - 发 request_agent 事件，并监听同名事件返回
  */
 
 const STORAGE_KEYS = {
@@ -101,7 +101,7 @@ class SocketIoPollingClient {
       throw new Error("Socket.IO 连接还没有建立");
     }
 
-    // 后端 request_nlu(req) 里会 json.loads(req)，所以这里传字符串。
+    // 后端 request_agent(req) 里会 json.loads(req)，所以这里传字符串。
     const socketPacket = `42${JSON.stringify([eventName, payload])}`;
     await this.sendPacket(socketPacket);
   }
@@ -464,8 +464,8 @@ function connectToBackend() {
     appendSystemMessage(`连接后端失败：${error.message}`);
   });
 
-  socketClient.on("request_nlu", (payload) => {
-    handleNluFrame(payload);
+  socketClient.on("request_agent", (payload) => {
+    handleAgentFrame(payload);
   });
 
   socketClient.connect();
@@ -509,14 +509,14 @@ async function sendQuery() {
   };
 
   try {
-    await socketClient.emit("request_nlu", JSON.stringify(payload));
+    await socketClient.emit("request_agent", JSON.stringify(payload));
   } catch (error) {
     finishAssistantMessage("发送失败，请稍后再试。", { isError: true });
     appendSystemMessage(error.message);
   }
 }
 
-function handleNluFrame(payload) {
+function handleAgentFrame(payload) {
   const frame = parseFrame(payload);
 
   if (!activeAssistantMessageId) {
@@ -525,6 +525,17 @@ function handleNluFrame(payload) {
   }
 
   const status = Number(frame.status);
+  const hasStatus = Number.isFinite(status);
+
+  // 兼容旧协议：如果后端没带 status，就按“单帧完成”处理。
+  // 新协议下不会走到这里，保留它是为了平滑升级。
+  if (!hasStatus) {
+    const text = frame.frame || frame.nlg || summarizeTaskFrame(frame);
+    updateMessage(activeAssistantMessageId, text, { replace: true, loading: false });
+    addFrameMeta(activeAssistantMessageId, frame);
+    releaseComposer();
+    return;
+  }
 
   if (status === 0) {
     updateMessage(activeAssistantMessageId, "", { loading: true, replace: true });
@@ -551,9 +562,9 @@ function handleNluFrame(payload) {
     return;
   }
 
-  // task 分支一般没有 status 字段，会直接返回结构化 NLU 结果。
-  const text = summarizeTaskFrame(frame);
-  updateMessage(activeAssistantMessageId, text, { replace: true, loading: false });
+  // 未知状态码兜底：尽量展示可读文本，避免界面卡死。
+  const fallbackText = frame.frame || frame.nlg || summarizeTaskFrame(frame);
+  updateMessage(activeAssistantMessageId, fallbackText, { replace: true, loading: false });
   addFrameMeta(activeAssistantMessageId, frame);
   releaseComposer();
 }
@@ -576,7 +587,7 @@ function summarizeTaskFrame(frame) {
   }
 
   const intent = frame.intent || "未知意图";
-  const functionName = frame.function || frame.func || "未命中功能";
+  const functionName = frame.function || "未命中功能";
   const slots = formatSlots(frame.slots);
 
   if (slots) {
@@ -668,8 +679,9 @@ function addFrameMeta(id, frame) {
   oldDebug?.remove();
 
   const metaItems = [
+    frame.route ? `路由：${frame.route}` : "",
     frame.intent ? `意图：${frame.intent}` : "",
-    frame.function || frame.func ? `功能：${frame.function || frame.func}` : "",
+    frame.function ? `功能：${frame.function}` : "",
     Number.isFinite(Number(frame.cost)) ? `耗时：${Number(frame.cost).toFixed(2)}s` : "",
   ].filter(Boolean);
 
