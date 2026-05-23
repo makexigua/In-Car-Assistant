@@ -3,7 +3,7 @@ import json
 import re
 from openai import OpenAI
 from langchain_core.documents import Document
-from src.client.env_loader import load_project_env
+from kb.online.src.client.env_loader import load_project_env
 
 
 load_project_env()

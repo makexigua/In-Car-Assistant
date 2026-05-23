@@ -193,8 +193,7 @@ def inference(req):
                     route="task",
                     answer=answer_for_next_round,
                     query_fallback=ori_query,
-                )
-                # task 也走统一帧协议：单帧结束态，前端无需再区分第二种包格式。
+                ) 
                 send_msg(
                     response_payload,
                     "TASK",

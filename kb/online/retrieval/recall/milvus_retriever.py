@@ -17,9 +17,9 @@ from pymilvus import (
 from langchain_core.documents import Document
 from pymilvus.model.hybrid import BGEM3EmbeddingFunction
 
-from src.constant import test_doc_path, bge_m3_model_path, milvus_db_path
-from src.client.mongodb_config import MongoConfig
-from src.client.env_loader import load_project_env
+from kb.online.src.constant import test_doc_path, bge_m3_model_path, milvus_db_path
+from kb.online.src.client.mongodb_config import MongoConfig
+from kb.online.src.client.env_loader import load_project_env
 
 # 每批次向 Milvus 写入的文本数量，避免一次性写入过多导致内存和延迟压力。
 EMB_BATCH = 50

@@ -5,7 +5,7 @@ import hashlib
 from langchain.schema import Document
 from langchain_community.retrievers import BM25Retriever
 
-from src.constant import bm25_pickle_path, stopwords_path
+from kb.online.src.constant import bm25_pickle_path, stopwords_path
 
 with open(stopwords_path) as fd:
     tokens = fd.readlines()
@@ -62,4 +62,3 @@ if __name__ == "__main__":
     bm25 = BM25(docs)
     bm25_res = bm25.retrieve_topk("座椅加热", 3)
     print(bm25_res)
-

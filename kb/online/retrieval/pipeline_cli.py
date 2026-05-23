@@ -1,18 +1,11 @@
 import time
-import sys
-from pathlib import Path
 
-# 让脚本在“仓库根目录执行”和“kb/online目录执行”两种场景都能找到 src/retrieval 包。
-ONLINE_DIR = Path(__file__).resolve().parents[1]
-if str(ONLINE_DIR) not in sys.path:
-    sys.path.insert(0, str(ONLINE_DIR))
-
-from retrieval.recall.bm25_retriever import BM25
-from retrieval.recall.milvus_retriever import MilvusRetriever
-from src.client.llm_api_client import request_chat
-from retrieval.rerank.bge_m3_reranker import BGEM3ReRanker
-from src.constant import bge_reranker_model_path
-from retrieval.postprocess import merge_docs, post_processing
+from kb.online.retrieval.recall.bm25_retriever import BM25
+from kb.online.retrieval.recall.milvus_retriever import MilvusRetriever
+from kb.online.src.client.llm_api_client import request_chat
+from kb.online.retrieval.rerank.bge_m3_reranker import BGEM3ReRanker
+from kb.online.src.constant import bge_reranker_model_path
+from kb.online.retrieval.postprocess import merge_docs, post_processing
 
 # warmstart
 bm25_retriever = BM25(docs=None, retrieve=True)
