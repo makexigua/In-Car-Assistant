@@ -52,10 +52,3 @@ local_attachment_dir/
 logs/
 tmp/
 
-# ==========================================
-# 6. 知识库本地数据库与索引产物（部署环境重建，不进仓库）
-# ==========================================
-kb/data/mongodb/
-kb/data/processed/index/milvus.db
-kb/data/processed/index/faiss.db/
-kb/data/processed/index/faiss_qwen.db/
