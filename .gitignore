@@ -52,3 +52,4 @@ local_attachment_dir/
 logs/
 tmp/
 
+car_agent.egg-info
