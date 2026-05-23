@@ -33,29 +33,14 @@ def _ensure_kb_data_dirs() -> None:
 _ensure_kb_data_dirs()
 
 # 数据路径
-pdf_path = str(RAW_DATA_DIR / "Tesla_Manual.pdf")
-test_doc_path = str(RAW_DATA_DIR / "test_docs.txt")
 stopwords_path = str(RAW_DATA_DIR / "stopwords.txt")
 image_save_dir = str(PROCESSED_IMAGES_DIR)
-raw_docs_path = str(PROCESSED_DOCS_DIR / "raw_docs.pkl")
-clean_docs_path = str(PROCESSED_DOCS_DIR / "clean_docs.pkl")
-split_docs_path = str(PROCESSED_DOCS_DIR / "split_docs.pkl")
 
 # 索引路径
 bm25_pickle_path = str(PROCESSED_INDEX_DIR / "bm25retriever.pkl")
-tfidf_pickle_path = str(PROCESSED_INDEX_DIR / "tfidfretriever.pkl")
 milvus_db_path = str(PROCESSED_INDEX_DIR / "milvus.db")
-faiss_db_path = str(PROCESSED_INDEX_DIR / "faiss.db")
-faiss_qwen_db_path = str(PROCESSED_INDEX_DIR / "faiss_qwen.db")
 
 # 模型路径（可通过 KB_MODELS_DIR 覆盖）
 models_dir = Path(os.getenv("KB_MODELS_DIR", str(KB_DIR / "models")))
-m3e_small_model_path = str(models_dir / "AI-ModelScope" / "m3e-small")
 bge_m3_model_path = str(models_dir / "BAAI" / "bge-m3")
-bce_model_path = str(models_dir / "maidalun" / "bce-embedding-base_v1")
-qwen3_embedding_model_path = str(models_dir / "Qwen3-Embedding-0.6B")
-qwen3_reranker_model_path = str(models_dir / "Qwen3-Reranker-0.6B")
-qwen3_4b_reranker_model_path = str(models_dir / "Qwen3-Reranker-4B")
 bge_reranker_model_path = str(models_dir / "BAAI" / "bge-reranker-v2-m3")
-bge_reranker_minicpm_path = str(models_dir / "bge-reranker-v2-minicpm-layerwise")
-text2vec_model_path = str(models_dir / "text2vec-base-chinese")

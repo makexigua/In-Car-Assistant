@@ -1,16 +1,13 @@
 import os
-import json
-import re
-import requests
-from openai import OpenAI
 import concurrent.futures
 from tqdm import tqdm
 from more_itertools import divide
 from langchain_core.documents import Document
-from src.client.env_loader import load_project_env
+from openai import OpenAI
+
+from config.env_loader import load_project_env
 
 load_project_env()
-
 
 MAX_WORKERS = 20
 
@@ -26,33 +23,34 @@ LLM_CLEAN_PROMPT = """
 """
 
 llm_client = OpenAI(
-    api_key=os.getenv("RAG_LLM_API_KEY", os.getenv("DOUBAO_API_KEY", "")),
-    base_url=os.getenv("RAG_LLM_BASE_URL", os.getenv("DOUBAO_BASE_URL", ""))
+    api_key=os.getenv("LLM_API_KEY", ""),
+    base_url=os.getenv("LLM_BASE_URL", ""),
 )
 
 
-def chat(doc, model="ep-20250206092527-ms2qn"):
+def _chat(doc: str) -> str:
     completion = llm_client.chat.completions.create(
-        model=os.getenv("RAG_LLM_MODEL", os.getenv("DOUBAO_MODEL_NAME", "")),
-        messages=[
-            {"role": "user", "content": doc}
-        ],
+        model=os.getenv("DEFAULT_CHAT_MODEL", ""),
+        messages=[{"role": "user", "content": doc}],
         top_p=0,
-        temperature=0.001
+        temperature=0.001,
     )
-    result = completion.choices[0].message.content
-
-    return result
+    return completion.choices[0].message.content
 
 
-def request_llm_clean(docs):
+def clean(docs: list[Document]) -> list[Document]:
     clean_docs = []
-    docs_mapping = {doc.metadata['unique_id']: doc for doc in docs}
+    docs_mapping = {doc.metadata["unique_id"]: doc for doc in docs}
     docs_groups = [list(group) for group in divide(MAX_WORKERS, docs)]
+
     for groups in docs_groups:
         with concurrent.futures.ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
-            futures = {doc.metadata['unique_id']: executor.submit(chat,
-                LLM_CLEAN_PROMPT.format(doc.page_content)) for doc in groups}
+            futures = {
+                doc.metadata["unique_id"]: executor.submit(
+                    _chat, LLM_CLEAN_PROMPT.format(doc.page_content)
+                )
+                for doc in groups
+            }
 
             for unique_id in tqdm(futures):
                 future = futures[unique_id]
@@ -60,12 +58,7 @@ def request_llm_clean(docs):
                 if result is None:
                     continue
                 clean_docs.append(
-                   Document(page_content=result, metadata=docs_mapping[unique_id].metadata) 
+                    Document(page_content=result, metadata=docs_mapping[unique_id].metadata)
                 )
+
     return clean_docs
-
-
-if __name__ == "__main__":
-    doc = "".join(open("./data/ut/test_docs.txt").readlines())
-    res = chat(LLM_CLEAN_PROMPT.format(doc))
-    print(res)

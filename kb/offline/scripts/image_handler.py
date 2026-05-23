@@ -5,14 +5,14 @@ from typing import Tuple
 from pymongo.collection import Collection
 from typing_extensions import List
 
-from src import constant
-from src.fields.manual_images import ManualImages
-from src.client.mongodb_config import MongoConfig
+from config import settings
+from config.models import ManualImages
+from config.mongodb_config import MongoConfig
 
 # 全局配置
 manual_images_collection: Collection = MongoConfig.get_collection("manual_images")
-image_save_dir = constant.image_save_dir
-pdf_path = constant.pdf_path
+image_save_dir = settings.image_save_dir
+pdf_path = settings.pdf_path
 
 
 # 标题判断配置

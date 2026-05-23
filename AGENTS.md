@@ -1,10 +1,17 @@
 ## 项目速览（给下次加载用）
 
+### 维护约定
+- 新增配置优先写入根目录 `.env` 和 `.env.example`
+
 ### 目录约定
 - `main/`：主链路编排层（入口服务、拒识/改写/仲裁调度、task/faq/chat 路由）
 - `main/skills/`：主链路 skill 配置与执行器（reject/rewrite/arbitration/chat）
 - `task/`：任务型链路（意图召回、function calling、槽位抽取、DM/MCP）
 - `kb/`：知识库链路（RAG 数据、检索、重排、知识问答相关脚本）
+  - `kb/offline/data/`：全部数据文件（原始资料、处理产物、QA 数据集、微调数据）
+  - `kb/offline/scripts/`：离线数据处理与入库脚本（PDF 解析、图片提取、语义切块、索引入库）
+  - `kb/offline/src/`：离线支撑库（常量、客户端封装、Pydantic 模型）
+  - `kb/online/`：在线检索与 RAG 服务
 - `web/`：前端静态页面（简洁问答助手界面，默认按当前页面域名连接后端，带浏览器原生语音输入入口）
 
 ### 当前主流程
@@ -28,5 +35,4 @@
 - `kb`：已改为相对路径常量，修复 FAISS 加载变量错误，移除历史日志目录
 - 已删除 `kb/data` 下未引用的测试数据文件（`test*.json`）
 
-### 维护约定
-- 新增配置优先写入根目录 `.env` 和 `.env.example`
+

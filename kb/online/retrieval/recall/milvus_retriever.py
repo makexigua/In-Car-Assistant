@@ -17,7 +17,7 @@ from pymilvus import (
 from langchain_core.documents import Document
 from pymilvus.model.hybrid import BGEM3EmbeddingFunction
 
-from kb.online.src.constant import test_doc_path, bge_m3_model_path, milvus_db_path
+from kb.online.src.constant import bge_m3_model_path, milvus_db_path
 from kb.online.src.client.mongodb_config import MongoConfig
 from kb.online.src.client.env_loader import load_project_env
 
@@ -269,26 +269,16 @@ class MilvusRetriever:
 
 
 if __name__ == "__main__":
-    # 从测试文本文件按行读取样本文本。
-    texts = [k for k in open(test_doc_path).readlines()]
-    # 初始化文档容器。
+    # 示例：使用硬编码文本测试检索流程。
+    texts = ["打开车窗", "空调加热", "加热座椅", "Model3支持的钥匙类型"]
     docs = []
-    # 遍历每一行文本，构造带 unique_id 的 Document。
     for text in texts:
-        # 对文本做 MD5，生成稳定且可复现的唯一 ID。
         unique_id = hashlib.md5(text.encode('utf-8')).hexdigest()
-        # 构造最小元信息字典（仅包含 unique_id）。
         metadata = {"unique_id": unique_id}
-        # 组装 LangChain Document 并追加到列表。
         docs.append(Document(page_content=text, metadata=metadata))
-    # 构建检索器并写入向量库（默认 retrieve=False）。
     retriever = MilvusRetriever(docs)
-    # 构造示例查询。
     query = "Model3支持的钥匙类型"
-    # 执行 top-2 检索。
     results = retriever.retrieve_topk(query, 2)
-    # 打印每条结果内容，便于快速观察效果。
     for res in results:
         print(res)
-        # 打印分隔线，提升控制台可读性。
-        print("="*100)
+        print("=" * 100)
