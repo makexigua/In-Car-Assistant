@@ -3,7 +3,7 @@ import pickle
 import jieba
 import torch
 from tqdm import tqdm
-from langchain.schema import Document
+from langchain_core.documents import Document
 from langchain_community.retrievers import BM25Retriever
 from pymilvus import (
     connections,

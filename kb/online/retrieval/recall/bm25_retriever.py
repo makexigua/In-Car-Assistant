@@ -2,7 +2,7 @@ import os
 import pickle
 import jieba
 import hashlib
-from langchain.schema import Document
+from langchain_core.documents import Document
 from langchain_community.retrievers import BM25Retriever
 
 from kb.online.src.constant import bm25_pickle_path, stopwords_path
