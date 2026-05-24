@@ -1,4 +1,5 @@
-import time
+import os
+import re
 import sys
 from pathlib import Path
 
@@ -11,62 +12,94 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from retrieval.recall.bm25_retriever import BM25
-from retrieval.recall.milvus_retriever import MilvusRetriever
-from config.llm_client import request_chat
+from retrieval.recall.faiss_retriever import FaissRetriever
 from retrieval.rerank.bge_m3_reranker import BGEM3ReRanker
+from retrieval.postprocess import merge_docs, rrf_rank
+from config.llm_client import request_chat
 from kb.offline.config.settings import RERANK_MODEL
-from retrieval.postprocess import merge_docs, post_processing
+from kb.offline.config.env_loader import load_project_env
 
-# warmstart
-bm25_retriever = BM25(docs=None, retrieve=True)
-milvus_retriever = MilvusRetriever(docs=None, retrieve=True)
-bge_m3_reranker = BGEM3ReRanker(model_path=RERANK_MODEL)
-milvus_retriever.retrieve_topk("这是一条测试数据", topk=3)
+load_project_env()
 
+# 召回/排序数量（从环境变量读取，兼容旧配置）
+FAISS_TOPK = int(os.getenv("FAISS_TOPK", ""))
+BM25_TOPK = int(os.getenv("BM25_TOPK", ""))
+RRF_TOPK = int(os.getenv("RRF_TOPK", ""))
+RERANK_TOPK = int(os.getenv("RERANK_TOPK",""))
 
-while True:
-    query = input("输入—>")
-
-    # 检索
-    # BM25召回
-    t1 = time.time()
-    bm25_docs = bm25_retriever.retrieve_topk(query, topk=10)
-    print("BM25召回样例:")
-    print(bm25_docs)
-    print("="*100)
-    t2 = time.time()
+# 懒加载组件
+_components = {}
 
 
-    # BGE-M3稠密+稀疏召回+RRF初排
-    milvus_docs = milvus_retriever.retrieve_topk(query, topk=10)
-    print("BGE-M3召回样例:")
-    print(milvus_docs)
-    print("="*100)
-    t3 = time.time()
+def _init_components():
+    """初始化召回、重排组件，只执行一次。"""
+    if _components:
+        return
+
+    _components["bm25"] = BM25(docs=None, retrieve=True)
+    _components["faiss"] = FaissRetriever(docs=None, retrieve=True)
+    _components["reranker"] = BGEM3ReRanker(model_path=RERANK_MODEL)
 
 
-    # 去重
-    merged_docs = merge_docs(bm25_docs, milvus_docs)
-    print(merged_docs)
-    print("="*100)
+def process(query: str) -> dict:
+    """
+    RAG 链路主入口。
+
+    流程：
+    1. FAISS dense 召回 top FAISS_TOPK
+    2. BM25 召回 top BM25_TOPK
+    3. merge 去重
+    4. RRF 排序取 top RRF_TOPK
+    5. rerank 取 top RERANK_TOPK
+    6. LLM 生成答案
+    """
+    _init_components()
+
+    # 1. 双路召回
+    bm25_docs = _components["bm25"].retrieve_topk(query, topk=BM25_TOPK)
+    faiss_docs = _components["faiss"].retrieve_topk(query, topk=FAISS_TOPK)
+
+    # 2. 去重
+    merged_docs = merge_docs(bm25_docs, faiss_docs)
+    if not merged_docs:
+        return {"answer": "", "hit": False, "docs_count": 0}
+
+    # 3. RRF 排序
+    rrf_docs = rrf_rank([bm25_docs, faiss_docs])[:RRF_TOPK]
+
+    # 4. rerank
+    ranked_docs = _components["reranker"].rank(query, rrf_docs, topk=RERANK_TOPK)
+
+    # 5. LLM 生成答案
+    context = "\n".join([
+        f"【{idx + 1}】{doc.page_content}"
+        for idx, doc in enumerate(ranked_docs)
+    ])
+    raw_answer = request_chat(query, context, stream=False)
+    answer = _normalize_answer(raw_answer)
+
+    return {
+        "answer": answer,
+        "hit": bool(answer),
+        "docs_count": len(ranked_docs),
+    }
 
 
-    # 精排
-    ranked_docs = bge_m3_reranker.rank(query, merged_docs, topk=5)
-    print(ranked_docs)
-    print("="*100)
+def _normalize_answer(answer: Any) -> str:
+    """清洗 LLM 输出。"""
+    text = str(answer or "").strip()
+    if not text:
+        return ""
+    if re.fullmatch(r"无答案[。！？!?.]*", text):
+        return ""
+    if text.lower() in {"none", "null", "n"}:
+        return ""
+    return text
 
 
-    # 答案
-    context = "\n".join(["【" + str(idx+1) + "】" + doc.page_content for idx, doc in enumerate(ranked_docs)])
-    res_handler = request_chat(query, context, stream=True)
-    response = ""
-    for r in res_handler:
-        uttr = r.choices[0].delta.content
-        response += uttr
-        print(uttr, end='')
-    print("\n" + "="*100)
-
-    # 后处理
-    answer = post_processing(response, ranked_docs)
-    print("\n答案—>", answer)
+if __name__ == "__main__":
+    while True:
+        query = input("输入—>")
+        result = process(query)
+        print(result)
+        print("=" * 100)

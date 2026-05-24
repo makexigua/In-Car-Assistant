@@ -1,4 +1,3 @@
-
 import os
 import torch
 from langchain_core.documents import Document
@@ -37,14 +36,5 @@ class BGEM3ReRanker(object):
             )
             ][:topk]
         return response
+    
 
-
-if __name__ == "__main__":
-    bge_reranker_large = "./models/BAAI/bge-reranker-v2-m3/"
-    # bce_reranker_base = "../../models/bce-reranker-base-v1"
-    bge_rerank = BGEM3ReRanker(bge_reranker_large)
-    query = "今天天气怎么样"
-    docs = ["你好", "今天天气不错", "今天有雨吗"]
-    docs = [Document(page_content=doc, metadata={}) for doc in docs]
-    response = bge_rerank.rank(query, docs)
-    print(response)

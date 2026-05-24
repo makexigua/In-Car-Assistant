@@ -1,6 +1,8 @@
 import os
 import pickle
+
 import jieba
+import numpy as np
 import torch
 from tqdm import tqdm
 from langchain_core.documents import Document
@@ -20,6 +22,7 @@ from config.settings import (
     stopwords_path,
     milvus_db_path,
     EMBEDDING_MODEL,
+    PROCESSED_INDEX_DIR,
 )
 from config.mongodb_config import MongoConfig
 from config.models import ManualInfo
@@ -37,6 +40,10 @@ MAX_TEXT_LENGTH = 512
 ID_MAX_LENGTH = 100
 MILVUS_COL_NAME = "hybrid_bge_m3"
 
+# FAISS 配置
+FAISS_INDEX_PATH = str(PROCESSED_INDEX_DIR / "faiss.index")
+FAISS_IDS_PATH = str(PROCESSED_INDEX_DIR / "faiss_ids.pkl")
+
 
 def _tokenize(text: str) -> list[str]:
     tokens = jieba.lcut(text)
@@ -44,7 +51,7 @@ def _tokenize(text: str) -> list[str]:
 
 
 class IndexBuilder:
-    """统一索引构建器：负责将文档写入 MongoDB、Milvus、BM25。"""
+    """统一索引构建器：负责将文档写入 MongoDB、Milvus、BM25、FAISS。"""
 
     def __init__(self, docs: list[Document]):
         self.docs = docs
@@ -53,6 +60,7 @@ class IndexBuilder:
         """一键构建全部索引。"""
         self.build_mongodb()
         self.build_bm25()
+        self.build_faiss()
         self.build_milvus()
 
     def build_mongodb(self, collection_name: str = "manual_text"):
@@ -81,6 +89,41 @@ class IndexBuilder:
         retriever = BM25Retriever.from_documents(self.docs, preprocess_func=_tokenize)
         pickle.dump(retriever, open(bm25_pickle_path, "wb"))
         print(f"BM25 索引构建完成，已持久化到 {bm25_pickle_path}")
+
+    def build_faiss(self):
+        """构建 FAISS dense 向量索引。"""
+        try:
+            import faiss
+        except ImportError:
+            print("faiss 未安装，跳过 FAISS 索引构建。")
+            return
+
+        embedding_device = os.getenv(
+            "RAG_EMBED_DEVICE",
+            "cuda" if torch.cuda.is_available() else "cpu",
+        )
+        embedding_handler = BGEM3EmbeddingFunction(
+            model_name=EMBEDDING_MODEL,
+            device=embedding_device,
+        )
+
+        raw_texts = [doc.page_content for doc in self.docs]
+        unique_ids = [doc.metadata["unique_id"] for doc in self.docs]
+
+        texts_embeddings = embedding_handler(raw_texts)
+        dense_vectors = np.array(texts_embeddings["dense"], dtype="float32")
+
+        # 归一化，使内积等价于余弦相似度
+        faiss.normalize_L2(dense_vectors)
+
+        dim = dense_vectors.shape[1]
+        index = faiss.IndexFlatIP(dim)
+        index.add(dense_vectors)
+
+        faiss.write_index(index, FAISS_INDEX_PATH)
+        pickle.dump(unique_ids, open(FAISS_IDS_PATH, "wb"))
+
+        print(f"FAISS 索引构建完成，共 {len(self.docs)} 条，维度 {dim}")
 
     def build_milvus(self, collection_name: str = MILVUS_COL_NAME):
         """构建 Milvus 向量索引。"""

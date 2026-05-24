@@ -16,16 +16,11 @@ class BM25(object):
     def __init__(self, docs, retrieve=False):
         # 创建待编码文档集
         self.documents = docs 
-
-        # 初始化BM25的知识库
         self.retriever = self.get_BM25_retriever(retrieve=retrieve)
 
 
 
     def get_BM25_retriever(self, retrieve):
-        """
-        获取BM25检索器，如果已经存在则加载，否则创建并持久化
-        """
         if retrieve and os.path.exists(bm25_pickle_path):
             bm25_retriever = pickle.load(open(bm25_pickle_path, 'rb'))
         else:
@@ -35,9 +30,6 @@ class BM25(object):
 
 
     def tokenize(self, text):
-        """
-        使用jieba进行中文分词
-        """
         tokens = jieba.lcut(text)
         return [t for t in tokens if t not in _stopwords]
 
