@@ -82,14 +82,3 @@ class MongoConfig:
 
 # 应用启动时初始化连接
 MongoConfig.initialize()
-
-
-if __name__ == "__main__":
-    client = MongoConfig()
-    collection = MongoConfig.get_collection("my_collection")
-    dic = {'name':'serena',"id":1532}
-    collection.insert_one(dic)
-    list_of_records = [{'name': 'amy', 'id': 1798},{'name': 'bob', 'id': 1631}]
-    collection.insert_many(list_of_records)
-    for record in collection.find():
-        pprint(record)
