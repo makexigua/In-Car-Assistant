@@ -38,6 +38,11 @@ ID_MAX_LENGTH = 100
 MILVUS_COL_NAME = "hybrid_bge_m3"
 
 
+def _tokenize(text: str) -> list[str]:
+    tokens = jieba.lcut(text)
+    return [t for t in tokens if t not in _stopwords]
+
+
 class IndexBuilder:
     """统一索引构建器：负责将文档写入 MongoDB、Milvus、BM25。"""
 
@@ -73,11 +78,6 @@ class IndexBuilder:
 
     def build_bm25(self):
         """构建 BM25 索引并持久化到本地。"""
-
-        def _tokenize(text: str) -> list[str]:
-            tokens = jieba.lcut(text)
-            return [t for t in tokens if t not in _stopwords]
-
         retriever = BM25Retriever.from_documents(self.docs, preprocess_func=_tokenize)
         pickle.dump(retriever, open(bm25_pickle_path, "wb"))
         print(f"BM25 索引构建完成，已持久化到 {bm25_pickle_path}")

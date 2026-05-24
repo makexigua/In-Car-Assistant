@@ -1,6 +1,6 @@
 import re
 from langchain_core.documents import Document
-from kb.online.src.client.mongodb_config import MongoConfig
+from kb.offline.config.mongodb_config import MongoConfig
 
 manual_collection = MongoConfig.get_collection("manual_text")
 

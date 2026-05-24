@@ -1,16 +1,26 @@
 import time
+import sys
+from pathlib import Path
 
-from kb.online.retrieval.recall.bm25_retriever import BM25
-from kb.online.retrieval.recall.milvus_retriever import MilvusRetriever
-from kb.online.src.client.llm_api_client import request_chat
-from kb.online.retrieval.rerank.bge_m3_reranker import BGEM3ReRanker
-from kb.online.src.constant import bge_reranker_model_path
-from kb.online.retrieval.postprocess import merge_docs, post_processing
+ONLINE_DIR = Path(__file__).resolve().parent
+PROJECT_ROOT = ONLINE_DIR.parents[1]
+
+if str(ONLINE_DIR) not in sys.path:
+    sys.path.insert(0, str(ONLINE_DIR))
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+from retrieval.recall.bm25_retriever import BM25
+from retrieval.recall.milvus_retriever import MilvusRetriever
+from config.llm_client import request_chat
+from retrieval.rerank.bge_m3_reranker import BGEM3ReRanker
+from kb.offline.config.settings import RERANK_MODEL
+from retrieval.postprocess import merge_docs, post_processing
 
 # warmstart
 bm25_retriever = BM25(docs=None, retrieve=True)
-milvus_retriever = MilvusRetriever(docs=None, retrieve=True) 
-bge_m3_reranker = BGEM3ReRanker(model_path=bge_reranker_model_path)
+milvus_retriever = MilvusRetriever(docs=None, retrieve=True)
+bge_m3_reranker = BGEM3ReRanker(model_path=RERANK_MODEL)
 milvus_retriever.retrieve_topk("这是一条测试数据", topk=3)
 
 
@@ -41,7 +51,7 @@ while True:
     print("="*100)
 
 
-    # 精排 
+    # 精排
     ranked_docs = bge_m3_reranker.rank(query, merged_docs, topk=5)
     print(ranked_docs)
     print("="*100)
@@ -53,7 +63,7 @@ while True:
     response = ""
     for r in res_handler:
         uttr = r.choices[0].delta.content
-        response += uttr 
+        response += uttr
         print(uttr, end='')
     print("\n" + "="*100)
 

@@ -3,7 +3,7 @@ import json
 import re
 from openai import OpenAI
 from langchain_core.documents import Document
-from kb.online.src.client.env_loader import load_project_env
+from kb.offline.config.env_loader import load_project_env
 
 
 load_project_env()
@@ -22,17 +22,17 @@ LLM_CHAT_PROMPT = """
 
 
 llm_client = OpenAI(
-    api_key=os.getenv("RAG_LLM_API_KEY", os.getenv("DOUBAO_API_KEY", "")),
-    base_url=os.getenv("RAG_LLM_BASE_URL", os.getenv("DOUBAO_BASE_URL", ""))
+    api_key=os.getenv("LLM_API_KEY", ""),
+    base_url=os.getenv("LLM_BASE_URL", ""),
 )
 
 
 def request_chat(query, context, stream=False):
 
-    prompt = LLM_CHAT_PROMPT.format(context=context, query=query) 
+    prompt = LLM_CHAT_PROMPT.format(context=context, query=query)
 
     completion = llm_client.chat.completions.create(
-        model=os.getenv("RAG_LLM_MODEL", os.getenv("DOUBAO_MODEL_NAME", "")),
+        model=os.getenv("DEFAULT_CHAT_MODEL", ""),
         messages=[
             {"role": "system", "content": "你是一个有用的人工智能助手."},
             {"role": "user", "content": prompt}
@@ -64,7 +64,7 @@ if __name__ == "__main__":
     **注**：如果已将 Apple 手表认证为钥匙，也可以将该手表用于离车后自动上锁功能。
     【2】车门锁闭时，外部车灯闪烁一次，后视镜折叠（如果折叠后视镜开启）。要在 Model 3 锁定时听到提示音，可点击控制 > 车锁 > 锁定提示音。
     【3】### 大灯延时照明
-    停止驾驶并将 Model 3 停在照明较差的环境中时，外部车灯会短暂亮起。它们会在一分钟后或您锁闭 Model 3 时（以较早者为准）自动关闭。当您使用 Tesla 手机应用程序锁定 Model 3 时，大灯将立即熄灭。但是，如果车辆因启用了“离车后自动上锁”功能而锁定（请参阅离车后自动上锁 页码 7），则大灯将在一分钟后自动熄灭。要打开或关闭此功能，请点击控制 > 车灯 > 大灯延时照明。关闭大灯延时照明后，当换入驻车挡并打开车门时，大灯会立即熄灭。"""
+    停止驾驶并将 Model 3 停在照明较差的环境中时，外部车灯会短暂亮起。它们会在一分钟后或您锁闭 Model 3 时（以较早者为准）自动关闭。当您使用 Tesla 手机应用程序锁定 Model 3 时，大灯将立即熄灭。但是，如果车辆因启用了"离车后自动上锁"功能而锁定（请参阅离车后自动上锁 页码 7），则大灯将在一分钟后自动熄灭。要打开或关闭此功能，请点击控制 > 车灯 > 大灯延时照明。关闭大灯延时照明后，当换入驻车挡并打开车门时，大灯会立即熄灭。"""
 
     query = "介绍一下离车后自动上锁功能"
 

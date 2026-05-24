@@ -51,8 +51,7 @@ split_docs_path = str(PROCESSED_DOCS_DIR / "split_docs.pkl")
 bm25_pickle_path = str(PROCESSED_INDEX_DIR / "bm25retriever.pkl")
 milvus_db_path = str(PROCESSED_INDEX_DIR / "milvus.db")
 
-# 模型路径（从环境变量读取，可通过 KB_MODELS_DIR 覆盖）
-models_dir = Path(os.getenv("KB_MODELS_DIR", str(KB_DIR / "models")))
-SEMANTIC_MODEL = os.getenv("SEMANTIC_MODEL", str(models_dir / "AI-ModelScope" / "m3e-small"))
-EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", str(models_dir / "BAAI" / "bge-m3"))
-RERANK_MODEL = os.getenv("RERANK_MODEL", str(models_dir / "BAAI" / "bge-reranker-v2-m3"))
+
+SEMANTIC_MODEL = os.getenv("SEMANTIC_MODEL", "")
+EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "")
+RERANK_MODEL = os.getenv("RERANK_MODEL","")

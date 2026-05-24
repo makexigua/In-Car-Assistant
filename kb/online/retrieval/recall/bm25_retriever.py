@@ -5,7 +5,7 @@ import hashlib
 from langchain_core.documents import Document
 from langchain_community.retrievers import BM25Retriever
 
-from kb.online.src.constant import bm25_pickle_path, stopwords_path
+from kb.offline.config.settings import bm25_pickle_path, stopwords_path
 
 with open(stopwords_path) as fd:
     tokens = fd.readlines()
