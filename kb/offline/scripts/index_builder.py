@@ -61,7 +61,7 @@ class IndexBuilder:
         self.build_mongodb()
         self.build_bm25()
         self.build_faiss()
-        self.build_milvus()
+        # self.build_milvus()
 
     def build_mongodb(self, collection_name: str = "manual_text"):
         """将文档批量写入 MongoDB。"""
