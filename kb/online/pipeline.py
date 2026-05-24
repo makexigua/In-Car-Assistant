@@ -21,11 +21,11 @@ from kb.offline.config.env_loader import load_project_env
 
 load_project_env()
 
-# 召回/排序数量（从环境变量读取，兼容旧配置）
-FAISS_TOPK = int(os.getenv("FAISS_TOPK", ""))
-BM25_TOPK = int(os.getenv("BM25_TOPK", ""))
-RRF_TOPK = int(os.getenv("RRF_TOPK", ""))
-RERANK_TOPK = int(os.getenv("RERANK_TOPK",""))
+# 召回/排序数量（从环境变量读取）
+FAISS_TOPK = int(os.getenv("FAISS_TOPK", "20"))
+BM25_TOPK = int(os.getenv("BM25_TOPK", "20"))
+RRF_TOPK = int(os.getenv("RRF_TOPK", "20"))
+RERANK_TOPK = int(os.getenv("RERANK_TOPK", "5"))
 
 # 懒加载组件
 _components = {}

@@ -1,6 +1,10 @@
 from pathlib import Path
 import os
 
+from config.env_loader import load_project_env
+
+load_project_env()
+
 # 离线目录（当前文件位于 kb/offline/config 下）
 CONFIG_DIR = Path(__file__).resolve().parent
 OFFLINE_DIR = CONFIG_DIR.parent
