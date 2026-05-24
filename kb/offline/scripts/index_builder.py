@@ -118,7 +118,7 @@ class IndexBuilder:
         print(f"FAISS 索引构建完成（API embedding），共 {len(self.docs)} 条，维度 {dim}")
 
     @staticmethod
-    def _get_embeddings_via_api(texts: list[str], batch_size: int = 100) -> list[list[float]]:
+    def _get_embeddings_via_api(texts: list[str], batch_size: int = 64) -> list[list[float]]:
         """通过大模型 Embedding API 批量获取向量。"""
         from openai import OpenAI
         from tqdm import tqdm
