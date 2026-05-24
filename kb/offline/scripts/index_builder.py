@@ -91,27 +91,19 @@ class IndexBuilder:
         print(f"BM25 索引构建完成，已持久化到 {bm25_pickle_path}")
 
     def build_faiss(self):
-        """构建 FAISS dense 向量索引。"""
+        """构建 FAISS dense 向量索引（通过 Embedding API）。"""
         try:
             import faiss
         except ImportError:
             print("faiss 未安装，跳过 FAISS 索引构建。")
             return
 
-        embedding_device = os.getenv(
-            "RAG_EMBED_DEVICE",
-            "cuda" if torch.cuda.is_available() else "cpu",
-        )
-        embedding_handler = BGEM3EmbeddingFunction(
-            model_name=EMBEDDING_MODEL,
-            device=embedding_device,
-        )
-
         raw_texts = [doc.page_content for doc in self.docs]
         unique_ids = [doc.metadata["unique_id"] for doc in self.docs]
 
-        texts_embeddings = embedding_handler(raw_texts)
-        dense_vectors = np.array(texts_embeddings["dense"], dtype="float32")
+        # 通过大模型 Embedding API 获取向量
+        embeddings = self._get_embeddings_via_api(raw_texts)
+        dense_vectors = np.array(embeddings, dtype="float32")
 
         # 归一化，使内积等价于余弦相似度
         faiss.normalize_L2(dense_vectors)
@@ -123,7 +115,27 @@ class IndexBuilder:
         faiss.write_index(index, FAISS_INDEX_PATH)
         pickle.dump(unique_ids, open(FAISS_IDS_PATH, "wb"))
 
-        print(f"FAISS 索引构建完成，共 {len(self.docs)} 条，维度 {dim}")
+        print(f"FAISS 索引构建完成（API embedding），共 {len(self.docs)} 条，维度 {dim}")
+
+    @staticmethod
+    def _get_embeddings_via_api(texts: list[str], batch_size: int = 100) -> list[list[float]]:
+        """通过大模型 Embedding API 批量获取向量。"""
+        from openai import OpenAI
+        from tqdm import tqdm
+
+        client = OpenAI(
+            api_key=os.getenv("LLM_API_KEY", ""),
+            base_url=os.getenv("LLM_BASE_URL", ""),
+        )
+        model = os.getenv("EMBEDDING_MODEL", "")
+
+        all_embeddings = []
+        for i in tqdm(range(0, len(texts), batch_size), desc="Embedding API"):
+            batch = texts[i:i + batch_size]
+            response = client.embeddings.create(model=model, input=batch)
+            all_embeddings.extend([item.embedding for item in response.data])
+
+        return all_embeddings
 
     def build_milvus(self, collection_name: str = MILVUS_COL_NAME):
         """构建 Milvus 向量索引。"""
