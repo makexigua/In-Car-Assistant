@@ -8,13 +8,10 @@
  * - 发 request_agent 事件，并监听同名事件返回
  */
 
-const STORAGE_KEYS = {
-  enableDm: "agent_web_enable_dm",
-};
+const STORAGE_KEYS = {};
 
 const dom = {
   connectionStatus: document.querySelector("#connectionStatus"),
-  enableDm: document.querySelector("#enableDm"),
   reconnectButton: document.querySelector("#reconnectButton"),
   messageList: document.querySelector("#messageList"),
   chatForm: document.querySelector("#chatForm"),
@@ -291,11 +288,6 @@ function createTraceId() {
   return `web-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
-function initSettings() {
-  const storedEnableDm = localStorage.getItem(STORAGE_KEYS.enableDm);
-  dom.enableDm.checked = storedEnableDm === null ? true : storedEnableDm === "true";
-}
-
 function bindEvents() {
   dom.chatForm.addEventListener("submit", (event) => {
     event.preventDefault();
@@ -315,10 +307,6 @@ function bindEvents() {
 
   dom.voiceButton.addEventListener("click", () => {
     toggleVoiceInput();
-  });
-
-  dom.enableDm.addEventListener("change", () => {
-    localStorage.setItem(STORAGE_KEYS.enableDm, String(dom.enableDm.checked));
   });
 
   dom.reconnectButton.addEventListener("click", () => {
@@ -505,7 +493,7 @@ async function sendQuery() {
     query,
     sender_id: createDefaultSenderId(),
     trace_id: createTraceId(),
-    enable_dm: dom.enableDm.checked,
+    enable_dm: true,
   };
 
   try {
@@ -755,7 +743,6 @@ function scrollToBottom() {
   dom.messageList.scrollTop = dom.messageList.scrollHeight;
 }
 
-initSettings();
 bindEvents();
 initSpeechRecognition();
 clearMessages();
