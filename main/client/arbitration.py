@@ -10,7 +10,7 @@ from main.utils.session_memory import build_role_history
 
 
 SKILL_NAME = "arbitration"
-TIMEOUT = 10.0
+TIMEOUT = 60.0
 MAX_HIS = 3
 CHUNK_SIZE = 1024
 

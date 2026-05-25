@@ -7,7 +7,7 @@ from main.utils import logger
 
 
 SKILL_NAME = "reject"
-REQUEST_TIMEOUT = 5.0
+REQUEST_TIMEOUT = 60.0
 
 
 def _normalize_reject_result(text: str) -> str:

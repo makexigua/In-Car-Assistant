@@ -13,7 +13,7 @@ from main.utils.session_memory import build_role_history
 
 SKILL_NAME = "chat"
 MAX_HIS = 3
-REQUEST_TIMEOUT = 30.0
+REQUEST_TIMEOUT = 60.0
 
 
 def request_chat(query, sender_id, trace_id="", multiturn=True):

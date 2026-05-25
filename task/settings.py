@@ -22,7 +22,7 @@ LLM_BASE_URL = os.getenv("LLM_BASE_URL", "")
 LLM_API_KEY = os.getenv("LLM_API_KEY", "")
 FUNCTION_CALL_MODEL = os.getenv("FUNCTION_CALL_MODEL", os.getenv("DEFAULT_CHAT_MODEL", ""))
 NLG_MODEL = os.getenv("NLG_MODEL", os.getenv("DEFAULT_CHAT_MODEL", ""))
-REQUEST_TIMEOUT = float(os.getenv("TASK_LLM_TIMEOUT", "12"))
+REQUEST_TIMEOUT = float(os.getenv("TASK_LLM_TIMEOUT", "60"))
 RECALL_TOP_K = int(os.getenv("TASK_RECALL_TOP_K", "5"))
 DEFAULT_NLG = os.getenv("DEFAULT_NLG", "抱歉，这个问题我还在学习中")
 
