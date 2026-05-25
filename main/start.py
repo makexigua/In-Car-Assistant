@@ -277,5 +277,6 @@ if __name__ == "__main__":
         app,
         allow_unsafe_werkzeug=True,
         host='0.0.0.0',
+        debug=True,
         port=os.getenv("FLASK_SERVER_PORT", 8080)
     )
