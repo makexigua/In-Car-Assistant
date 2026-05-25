@@ -17,8 +17,16 @@ encoding = tiktoken.get_encoding("cl100k_base")
 text_splitter = RecursiveCharacterTextSplitter(
     chunk_size=_chunk_size,
     chunk_overlap=_chunk_overlap,
-    separators=["\n\n", "\n"],
-    length_function=lambda text: len(encoding.encode(text)),
+    separators=[
+        "\n\n",
+        "。",
+        "！",
+        "？",
+        "；",
+        "\n",
+        " "
+    ],
+    length_function=lambda text: len(encoding.encode(text)),   # 按token计数
 )
 
 

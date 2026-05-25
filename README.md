@@ -1,6 +1,6 @@
 # 车载三路决策Agent：Task/RAG/Chat
 
-## 文件结构
+## 一、文件结构
 ```text
 .
 ├── main/         # 主链路：请求入口与全链路编排
@@ -12,38 +12,7 @@
 └── AGENTS.md     # 项目速览与维护约定
 ```
 
-## KB 目录（重构后）
-
-```text
-kb/
-├── data/
-│   ├── raw/                  # 原始数据（PDF、停用词）
-│   ├── scripts/              # 数据处理脚本（build_index、semantic_chunk）
-│   ├── processed/
-│   │   ├── docs/             # 预处理文档 pkl
-│   │   ├── images/           # 从手册抽取的图片
-│   │   └── index/            # 检索索引产物（bm25/milvus/faiss）
-│   ├── qa_pairs/             # QA 训练数据
-│   ├── rerank_data/          # 重排训练数据
-│   └── summary_data/         # 摘要训练数据
-├── retrieval/
-│   ├── recall/               # 召回（BM25、Milvus）
-│   ├── rerank/               # 重排（BGE）
-│   ├── postprocess.py        # 引用页码、相关图片后处理
-│   └── pipeline_cli.py       # 命令行联调脚本
-└── src/                      # 公共模块与兼容层
-```
-
-## KB 执行顺序（离线建库）
-
-1. 启动语义切块服务（只用于数据预处理阶段）  
-   `python kb/data/scripts/semantic_chunk.py`
-2. 跑建库脚本（解析 PDF -> 清洗 -> 切分 -> 写 Mongo -> 建 BM25/Milvus 索引）  
-   `python kb/data/scripts/build_index.py`
-3. 命令行联调召回重排  
-   `python kb/retrieval/pipeline_cli.py`
-
-## 短期记忆机制
+## 二、短期记忆机制
 
 短期记忆统一放在 Redis 的一个 key 里：`voice:session:{sender_id}`。  
 每个 `sender_id` 对应独立会话，value 是最近 3 轮对话数组，每轮包含：
@@ -69,7 +38,7 @@ kb/
 一句话总结：这是一个“单 key、短窗口、按 trace_id 回填”的会话记忆机制，既能保证多轮改写连续性，又把状态复杂度控制在最小范围。
 
 
-## Task 链路能力清单
+## 三、Task 链路能力清单
 
 ### 1）远端 MCP 能力（高德官方 Server）
 
@@ -78,7 +47,6 @@ kb/
 - 天气查询：`北京今天天气如何？`
 - 附近地点查询：`故宫附近有什么美食？`
 - 路径规划：`从北京到上海怎么走最省时间最方便？`
-
 
 ### 2）本地 Function Calling 能力（车控高频）
 
@@ -96,3 +64,23 @@ kb/
   用户可以问：`“给张三打电话”`
  
 注：当前链路是单轮主意图优先（一次命中一个函数），多动作可通过多轮交互补齐，或者后续扩展为任务拆解模式。
+
+
+## 四、RAG 链路策略
+
+### 整体架构
+```
+PDF 文档 → PDF 解析 → 文本清洗(LLM) → 文档切分(语义+递归) → 索引构建(MongoDB + BM25 + FAISS)
+                                                                              ↓
+用户 Query → FAISS 召回 + BM25 召回 → 合并去重 → RRF 排序 → BGE ReRanker → LLM 生成答案
+```
+
+### 离线文档处理策略
+1. PDF解析：对PDF页面进行过滤、裁剪，对图片进行提取、标题关联，每个page封装为Document元数据结构。
+2. 文本清洗：20 线程并发调用 LLM，按页分批处理，`temperature=0.001`, `top_p=0` 保证确定性输出。
+3. 文本切分：先按标题 + 段落 + 语义将文本切分为父文档，然后用切分器切分为子文档并存入FAISS和mongodb。
+
+### 在线检索生成策略
+1. 双路召回：使用 FAISS 做dense召回，BM25做关键词召回。
+2. 去重排序：先合并去重，再使用 RRF 融合排序两路召回结果，最后使用rerank模型精排。
+3. 答案生成：按照 prompt 中的格式输出回答。
