@@ -18,7 +18,7 @@ def call_llm_json(payload: Dict[str, Any], timeout: float = REQUEST_TIMEOUT) -> 
         "Authorization": LLM_API_KEY,
     }
     response = requests.post(
-        LLM_BASE_URL,
+        f"{LLM_BASE_URL}/chat/completions",
         headers=headers,
         data=json.dumps(payload, ensure_ascii=False),
         timeout=timeout,

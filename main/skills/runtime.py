@@ -187,7 +187,7 @@ def call_skill(
     headers = {"Authorization": LLM_API_KEY, "Content-Type": "application/json"}
     is_stream = bool(payload.get("stream", False))
     return requests.post(
-        LLM_BASE_URL,
+        f"{LLM_BASE_URL}/chat/completions",
         headers=headers,
         data=json.dumps(payload, ensure_ascii=False),
         stream=is_stream,
