@@ -3,9 +3,13 @@ import os
 import time
 import traceback
 import copy
+import warnings
 from typing import Any, Dict
 
 from flask import Flask, Response, request, jsonify, make_response, stream_with_context
+
+# 抑制第三方库的过期警告（如 jieba 的 pkg_resources）
+warnings.filterwarnings("ignore", category=UserWarning, module="jieba")
 
 from main.client.arbitration import request_arbitration
 from main.client.task import request_task

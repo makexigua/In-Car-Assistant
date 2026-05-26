@@ -123,6 +123,11 @@ class IndexBuilder:
         from openai import OpenAI
         from tqdm import tqdm
 
+        # DEBUG: 打印实际读到的环境变量
+        print(f"[DEBUG] EMBEDDING_MODEL='{os.getenv('EMBEDDING_MODEL', '')}'")
+        print(f"[DEBUG] LLM_BASE_URL='{os.getenv('LLM_BASE_URL', '')}'")
+        print(f"[DEBUG] LLM_API_KEY='{os.getenv('LLM_API_KEY', '')[:8]}...'")
+
         client = OpenAI(
             api_key=os.getenv("LLM_API_KEY", ""),
             base_url=os.getenv("LLM_BASE_URL", ""),
