@@ -1,10 +1,5 @@
 # Web / API
 flask
-flask-socketio
-eventlet
-fastapi
-uvicorn
-sse-starlette
 requests
 
 # Config / infra

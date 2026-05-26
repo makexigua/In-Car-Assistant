@@ -1,11 +1,9 @@
 "use strict";
 
 /*
- * 这里没有使用官方 socket.io-client 包，是为了保持前端零构建、零外部依赖。
- * 后端是 Flask-SocketIO，本文件实现了够当前项目使用的 Socket.IO polling 协议：
- * - 先用 Engine.IO 建立 polling 连接
- * - 再发送 Socket.IO 的默认命名空间连接包
- * - 发 request_agent 事件，并监听同名事件返回
+ * 前端与后端通过 HTTP Streaming 通信：
+ * - POST /agent 发送请求，后端用 newline-delimited JSON 流式返回帧
+ * - 每行一个 JSON 对象，由 handleAgentFrame 逐帧处理
  */
 
 const STORAGE_KEYS = {};
@@ -22,7 +20,6 @@ const dom = {
   clearButton: document.querySelector("#clearButton"),
 };
 
-let socketClient = null;
 let activeAssistantMessageId = "";
 let waitingForReply = false;
 let messageSeed = 0;
@@ -37,25 +34,17 @@ const SESSION_SENDER_ID = `web-${PAGE_OPEN_TS}`;
 const SpeechRecognitionConstructor =
   globalThis.SpeechRecognition || globalThis.webkitSpeechRecognition || null;
 
-
-function getAutoServerUrl() {
-  // 同域部署时最省心：页面在哪个域名打开，就连哪个域名的后端。
-  if (window.location.protocol === "http:" || window.location.protocol === "https:") {
-    return window.location.origin;
-  }
-  return "";
-}
-
-function getActiveServerUrl() {
-  return getAutoServerUrl();
-}
-
 function createDefaultSenderId() {
   return SESSION_SENDER_ID;
 }
 
 function createTraceId() {
   return `web-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+function setConnectionStatus(status, text) {
+  dom.connectionStatus.textContent = text;
+  dom.connectionStatus.className = `status-pill is-${status}`;
 }
 
 function bindEvents() {
@@ -80,7 +69,7 @@ function bindEvents() {
   });
 
   dom.reconnectButton.addEventListener("click", () => {
-    connectToBackend();
+    checkConnection();
   });
 
   dom.clearButton.addEventListener("click", () => {
@@ -88,156 +77,18 @@ function bindEvents() {
   });
 }
 
-function initSpeechRecognition() {
-  speechSupported = Boolean(SpeechRecognitionConstructor) && window.isSecureContext;
-
-  if (!speechSupported) {
-    dom.voiceButton.disabled = true;
-    dom.voiceButton.title = window.isSecureContext
-      ? "当前浏览器不支持语音识别"
-      : "语音输入需要 HTTPS 或本地安全环境";
-    setVoiceStatus("");
-    return;
-  }
-
-  speechRecognition = new SpeechRecognitionConstructor();
-  speechRecognition.lang = "zh-CN";
-  speechRecognition.continuous = false;
-  speechRecognition.interimResults = true;
-  speechRecognition.maxAlternatives = 1;
-
-  speechRecognition.addEventListener("start", () => {
-    isListening = true;
-    setVoiceButtonState(true);
-    setVoiceStatus("正在听，请说话。");
-  });
-
-  speechRecognition.addEventListener("result", (event) => {
-    const transcript = collectSpeechTranscript(event.results);
-
-    // 语音识别会不断刷新中间结果，这里用“开始录音前的文本 + 当前识别文本”覆盖输入框。
-    dom.queryInput.value = [speechBaseText, transcript].filter(Boolean).join(" ");
-    autoResizeTextarea();
-  });
-
-  speechRecognition.addEventListener("end", () => {
-    isListening = false;
-    setVoiceButtonState(false);
-    setVoiceStatus(dom.queryInput.value.trim() ? "已填入输入框，可以发送。" : "");
-    dom.queryInput.focus();
-  });
-
-  speechRecognition.addEventListener("error", (event) => {
-    isListening = false;
-    setVoiceButtonState(false);
-    setVoiceStatus(getSpeechErrorText(event.error));
-  });
-
-  setVoiceButtonState(false);
-}
-
-function toggleVoiceInput() {
-  if (!speechSupported || !speechRecognition || waitingForReply) {
-    return;
-  }
-
-  if (isListening) {
-    speechRecognition.stop();
-    return;
-  }
-
+async function checkConnection() {
+  setConnectionStatus("connecting", "检测中");
   try {
-    speechBaseText = dom.queryInput.value.trim();
-    speechRecognition.start();
-  } catch (error) {
-    // start() 在浏览器认为识别器已启动时会抛异常，给用户一个能看懂的提示。
-    setVoiceStatus("语音识别暂时无法启动，请稍后再试。");
-  }
-}
-
-function collectSpeechTranscript(results) {
-  let transcript = "";
-
-  // SpeechRecognitionResultList 在少数浏览器里不是标准数组，所以用下标遍历更稳。
-  for (let index = 0; index < results.length; index += 1) {
-    const result = results[index];
-
-    if (result[0]?.transcript) {
-      transcript += result[0].transcript;
+    const res = await fetch("/health");
+    if (res.ok) {
+      setConnectionStatus("online", "已连接");
+    } else {
+      setConnectionStatus("offline", "异常");
     }
+  } catch {
+    setConnectionStatus("offline", "不可达");
   }
-
-  return transcript.trim();
-}
-
-function getSpeechErrorText(errorCode) {
-  const errorMap = {
-    "audio-capture": "没有找到麦克风，请检查设备。",
-    "not-allowed": "浏览器没有麦克风权限，请允许后再试。",
-    "no-speech": "没有听到声音，请再试一次。",
-    network: "语音识别服务暂时不可用。",
-    aborted: "",
-  };
-
-  return errorMap[errorCode] || "语音识别失败，请再试一次。";
-}
-
-function setVoiceButtonState(listening) {
-  dom.voiceButton.classList.toggle("is-listening", listening);
-  dom.voiceButton.setAttribute("aria-label", listening ? "停止语音输入" : "开始语音输入");
-  dom.voiceButton.title = listening ? "停止语音输入" : "语音输入";
-}
-
-function setVoiceStatus(text) {
-  dom.voiceStatus.textContent = text;
-}
-
-function connectToBackend() {
-  const serverUrl = getActiveServerUrl();
-
-  if (socketClient) {
-    socketClient.disconnect();
-    socketClient = null;
-  }
-
-  if (!serverUrl) {
-    setConnectionStatus("offline", "不可连接");
-    appendSystemMessage("当前页面请通过 http/https 域名打开，系统会自动连接同域后端。");
-    return;
-  }
-
-  setConnectionStatus("connecting", "连接中");
-  socketClient = io(serverUrl, {
-    transports: ["websocket", "polling"],
-    reconnection: true,
-    reconnectionAttempts: Infinity,
-    reconnectionDelay: 2000,
-  });
-
-  socketClient.on("connect", () => {
-    setConnectionStatus("online", "已连接");
-  });
-
-  socketClient.on("disconnect", (reason) => {
-    setConnectionStatus("offline", "已断开");
-    if (reason === "io server disconnect") {
-      connectToBackend();
-    }
-  });
-
-  socketClient.on("connect_error", (error) => {
-    setConnectionStatus("offline", "连接失败");
-    appendSystemMessage(`连接后端失败：${error.message}`);
-  });
-
-  socketClient.on("request_agent", (payload) => {
-    handleAgentFrame(payload);
-  });
-}
-
-function setConnectionStatus(status, text) {
-  dom.connectionStatus.textContent = text;
-  dom.connectionStatus.className = `status-pill is-${status}`;
 }
 
 async function sendQuery() {
@@ -249,12 +100,6 @@ async function sendQuery() {
 
   if (isListening && speechRecognition) {
     speechRecognition.stop();
-  }
-
-  if (!socketClient || !socketClient.connected) {
-    appendSystemMessage("后端还没有连上，请检查地址后点重连。");
-    connectToBackend();
-    return;
   }
 
   appendMessage("user", query);
@@ -273,7 +118,38 @@ async function sendQuery() {
   };
 
   try {
-    socketClient.emit("request_agent", JSON.stringify(payload));
+    const response = await fetch("/agent", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split("\n");
+      buffer = lines.pop() || "";
+
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed) continue;
+        try {
+          handleAgentFrame(JSON.parse(trimmed));
+        } catch (parseError) {
+          console.warn("帧解析失败:", parseError, trimmed);
+        }
+      }
+    }
   } catch (error) {
     finishAssistantMessage("发送失败，请稍后再试。", { isError: true });
     appendSystemMessage(error.message);
@@ -281,7 +157,7 @@ async function sendQuery() {
 }
 
 function handleAgentFrame(payload) {
-  const frame = parseFrame(payload);
+  const frame = payload;
 
   if (!activeAssistantMessageId) {
     activeAssistantMessageId = appendMessage("assistant", "", { loading: true });
@@ -291,8 +167,6 @@ function handleAgentFrame(payload) {
   const status = Number(frame.status);
   const hasStatus = Number.isFinite(status);
 
-  // 兼容旧协议：如果后端没带 status，就按“单帧完成”处理。
-  // 新协议下不会走到这里，保留它是为了平滑升级。
   if (!hasStatus) {
     const text = frame.frame || frame.nlg || summarizeTaskFrame(frame);
     updateMessage(activeAssistantMessageId, text, { replace: true, loading: false });
@@ -302,122 +176,61 @@ function handleAgentFrame(payload) {
   }
 
   if (status === 0) {
-    updateMessage(activeAssistantMessageId, "", { loading: true, replace: true });
-    return;
-  }
-
-  if (status === 1) {
-    updateStreamingMessage(activeAssistantMessageId, frame.frame || "", true);
-    return;
-  }
-
-  if (status === 2) {
-    updateStreamingMessage(activeAssistantMessageId, frame.frame || "", false);
+    // 开始帧：更新 loading 状态
+    updateMessage(activeAssistantMessageId, "", { replace: false, loading: true });
+  } else if (status === 1) {
+    // 中间帧：追加内容或替换 loading
+    const text = frame.frame || "";
+    updateStreamingMessage(activeAssistantMessageId, text, false);
+  } else if (status === 2) {
+    // 结束帧
+    const text = frame.frame || "";
+    updateMessage(activeAssistantMessageId, text, { replace: false, loading: false });
     addFrameMeta(activeAssistantMessageId, frame);
     releaseComposer();
-    return;
+  } else if (status === -1) {
+    // 错误/拒识
+    const text = frame.frame || "";
+    finishAssistantMessage(text, { isError: true });
   }
-
-  if (status === -1) {
-    const fallback = frame.frame || frame.nlg || "这个问题暂时没法处理，可以换个说法再试。";
-    updateMessage(activeAssistantMessageId, fallback, { replace: true, loading: false });
-    addFrameMeta(activeAssistantMessageId, frame);
-    releaseComposer();
-    return;
-  }
-
-  // 未知状态码兜底：尽量展示可读文本，避免界面卡死。
-  const fallbackText = frame.frame || frame.nlg || summarizeTaskFrame(frame);
-  updateMessage(activeAssistantMessageId, fallbackText, { replace: true, loading: false });
-  addFrameMeta(activeAssistantMessageId, frame);
-  releaseComposer();
-}
-
-function parseFrame(payload) {
-  if (typeof payload === "string") {
-    try {
-      return JSON.parse(payload);
-    } catch {
-      return { frame: payload, status: 2 };
-    }
-  }
-
-  return payload || {};
 }
 
 function summarizeTaskFrame(frame) {
-  if (frame.nlg) {
-    return frame.nlg;
-  }
-
-  const intent = frame.intent || "未知意图";
-  const functionName = frame.function || "未命中功能";
-  const slots = formatSlots(frame.slots);
-
-  if (slots) {
-    return `已识别为「${intent}」，对应功能是「${functionName}」。\n槽位：${slots}`;
-  }
-
-  return `已识别为「${intent}」，对应功能是「${functionName}」。`;
+  const intent = frame.intent || "";
+  const route = frame.route || "";
+  const func = frame.function || "";
+  const parts = [route, intent, func].filter(Boolean);
+  return parts.length ? `[${parts.join("/")}]` : "";
 }
 
-function formatSlots(slots) {
-  if (!slots || typeof slots !== "object" || Array.isArray(slots)) {
-    return "";
-  }
-
-  return Object.entries(slots)
-    .map(([key, value]) => `${key}=${value}`)
-    .join("，");
+function releaseComposer() {
+  activeAssistantMessageId = "";
+  waitingForReply = false;
+  setComposerBusy(false);
 }
 
-function appendMessage(role, text, options = {}) {
-  const id = `message-${++messageSeed}`;
-  const message = document.createElement("article");
-  message.className = `message ${role}`;
-  message.dataset.messageId = id;
-
-  const label = document.createElement("div");
-  label.className = "message-label";
-  label.textContent = role === "user" ? "你" : role === "system" ? "系统" : "助手";
-
-  const bubble = document.createElement("div");
-  bubble.className = "bubble";
-  bubble.textContent = text;
-
-  if (options.loading) {
-    bubble.classList.add("is-loading");
-  }
-
-  message.append(label, bubble);
-  dom.messageList.append(message);
-  messageStore.set(id, { message, bubble, text });
-  scrollToBottom();
-
-  return id;
+function setComposerBusy(isBusy) {
+  dom.sendButton.disabled = isBusy;
+  dom.queryInput.disabled = isBusy;
+  dom.voiceButton.disabled = isBusy || !speechSupported;
 }
 
-function appendSystemMessage(text) {
-  appendMessage("system", text);
+function clearMessages() {
+  dom.messageList.innerHTML = "";
+  messageStore.clear();
+  activeAssistantMessageId = "";
+  waitingForReply = false;
+  setComposerBusy(false);
+  appendMessage("assistant", "您好，我是Model 3智能助手，有什么可以帮您？");
 }
 
-function updateMessage(id, text, options = {}) {
-  const record = messageStore.get(id);
-  if (!record) {
-    return;
-  }
+function autoResizeTextarea() {
+  dom.queryInput.style.height = "auto";
+  dom.queryInput.style.height = `${Math.min(dom.queryInput.scrollHeight, 140)}px`;
+}
 
-  if (options.append) {
-    record.text += text;
-  } else if (options.replace) {
-    record.text = text;
-  } else {
-    record.text = text || record.text;
-  }
-
-  record.bubble.textContent = record.text || "";
-  record.bubble.classList.toggle("is-loading", Boolean(options.loading));
-  scrollToBottom();
+function scrollToBottom() {
+  dom.messageList.scrollTop = dom.messageList.scrollHeight;
 }
 
 function updateStreamingMessage(id, text, keepLoading) {
@@ -433,9 +246,7 @@ function updateStreamingMessage(id, text, keepLoading) {
 
 function addFrameMeta(id, frame) {
   const record = messageStore.get(id);
-  if (!record) {
-    return;
-  }
+  if (!record) return;
 
   const oldMeta = record.bubble.querySelector(".meta-row");
   const oldDebug = record.bubble.querySelector(".debug-block");
@@ -489,37 +300,154 @@ function finishAssistantMessage(text, options = {}) {
   releaseComposer();
 }
 
-function releaseComposer() {
-  activeAssistantMessageId = "";
-  waitingForReply = false;
-  setComposerBusy(false);
+function appendSystemMessage(text) {
+  appendMessage("system", text);
 }
 
-function setComposerBusy(isBusy) {
-  dom.sendButton.disabled = isBusy;
-  dom.queryInput.disabled = isBusy;
-  dom.voiceButton.disabled = isBusy || !speechSupported;
+function appendMessage(role, text, options = {}) {
+  const id = `msg-${++messageSeed}`;
+  const article = document.createElement("article");
+  article.className = `message ${role}`;
+  article.id = id;
+
+  const labelMap = { user: "你", assistant: "助手", system: "系统" };
+  const label = document.createElement("div");
+  label.className = "message-label";
+  label.textContent = labelMap[role] || role;
+  article.append(label);
+
+  const bubble = document.createElement("div");
+  bubble.className = "bubble";
+  if (options.loading) bubble.classList.add("is-loading");
+  bubble.textContent = text;
+  article.append(bubble);
+
+  dom.messageList.append(article);
+  messageStore.set(id, { element: article, bubble, text: text });
+
+  scrollToBottom();
+  return id;
 }
 
-function clearMessages() {
-  dom.messageList.innerHTML = "";
-  messageStore.clear();
-  activeAssistantMessageId = "";
-  waitingForReply = false;
-  setComposerBusy(false);
-  appendMessage("assistant", "您好，我是Model 3智能助手，有什么可以帮您？");
+function updateMessage(id, text, options = {}) {
+  const record = messageStore.get(id);
+  if (!record) return;
+
+  const newText = options.append ? record.text + text : options.replace ? text : text || record.text;
+  record.text = newText;
+  record.bubble.textContent = newText;
+
+  record.bubble.classList.toggle("is-loading", !!options.loading);
+
+  scrollToBottom();
 }
 
-function autoResizeTextarea() {
-  dom.queryInput.style.height = "auto";
-  dom.queryInput.style.height = `${Math.min(dom.queryInput.scrollHeight, 140)}px`;
+function parseFrame(payload) {
+  if (typeof payload === "string") {
+    try {
+      return JSON.parse(payload);
+    } catch {
+      return { frame: payload };
+    }
+  }
+  return payload;
 }
 
-function scrollToBottom() {
-  dom.messageList.scrollTop = dom.messageList.scrollHeight;
+function initSpeechRecognition() {
+  speechSupported = Boolean(SpeechRecognitionConstructor) && window.isSecureContext;
+
+  if (!speechSupported) {
+    dom.voiceButton.disabled = true;
+    dom.voiceButton.title = window.isSecureContext
+      ? "当前浏览器不支持语音识别"
+      : "语音输入需要 HTTPS 或本地安全环境";
+    setVoiceStatus("");
+    return;
+  }
+
+  speechRecognition = new SpeechRecognitionConstructor();
+  speechRecognition.lang = "zh-CN";
+  speechRecognition.continuous = false;
+  speechRecognition.interimResults = true;
+  speechRecognition.maxAlternatives = 1;
+
+  speechRecognition.addEventListener("start", () => {
+    isListening = true;
+    setVoiceButtonState(true);
+    setVoiceStatus("正在听，请说话。");
+  });
+
+  speechRecognition.addEventListener("result", (event) => {
+    const transcript = collectSpeechTranscript(event.results);
+    dom.queryInput.value = [speechBaseText, transcript].filter(Boolean).join(" ");
+    autoResizeTextarea();
+  });
+
+  speechRecognition.addEventListener("end", () => {
+    isListening = false;
+    setVoiceButtonState(false);
+    setVoiceStatus(dom.queryInput.value.trim() ? "已填入输入框，可以发送。" : "");
+    dom.queryInput.focus();
+  });
+
+  speechRecognition.addEventListener("error", (event) => {
+    isListening = false;
+    setVoiceButtonState(false);
+    setVoiceStatus(getSpeechErrorText(event.error));
+  });
+
+  setVoiceButtonState(false);
 }
 
+function toggleVoiceInput() {
+  if (!speechSupported || !speechRecognition || waitingForReply) return;
+
+  if (isListening) {
+    speechRecognition.stop();
+    return;
+  }
+
+  try {
+    speechBaseText = dom.queryInput.value.trim();
+    speechRecognition.start();
+  } catch {
+    setVoiceStatus("语音识别暂时无法启动，请稍后再试。");
+  }
+}
+
+function collectSpeechTranscript(results) {
+  let transcript = "";
+  for (let index = 0; index < results.length; index += 1) {
+    if (results[index][0]?.transcript) {
+      transcript += results[index][0].transcript;
+    }
+  }
+  return transcript.trim();
+}
+
+function getSpeechErrorText(errorCode) {
+  const errorMap = {
+    "audio-capture": "没有找到麦克风，请检查设备。",
+    "not-allowed": "浏览器没有麦克风权限，请允许后再试。",
+    "no-speech": "没有听到声音，请再试一次。",
+    network: "语音识别服务暂时不可用。",
+    aborted: "",
+  };
+  return errorMap[errorCode] || "语音识别失败，请再试一次。";
+}
+
+function setVoiceButtonState(listening) {
+  dom.voiceButton.classList.toggle("is-listening", listening);
+  dom.voiceButton.setAttribute("aria-label", listening ? "停止语音输入" : "开始语音输入");
+  dom.voiceButton.title = listening ? "停止语音输入" : "语音输入";
+}
+
+function setVoiceStatus(text) {
+  dom.voiceStatus.textContent = text;
+}
+
+// 初始化
 bindEvents();
 initSpeechRecognition();
 clearMessages();
-connectToBackend();
+setConnectionStatus("online", "就绪");
