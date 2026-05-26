@@ -1,9 +1,13 @@
 # 作用：通过 LLM API 调用 rerank 服务，替代本地 transformers 模型加载。
 
 import os
+import logging
 
 import requests
 from langchain_core.documents import Document
+
+
+logger = logging.getLogger(__name__)
 
 
 class ApiReranker(object):
@@ -39,14 +43,18 @@ class ApiReranker(object):
             resp.raise_for_status()
             data = resp.json()
         except Exception as e:
-            print(f"[Rerank] API 调用失败，降级使用原始顺序: {e}")
+            logger.warning("[Rerank] API 调用失败，降级使用原始顺序: %s", e)
             return candidate_docs[:topk]
 
         results = data.get("results", [])
         if not results:
+            logger.warning("[Rerank] API 返回空结果，降级使用原始顺序")
             return candidate_docs[:topk]
 
         indexed = [(item["index"], item["relevance_score"]) for item in results]
+        logger.info("[Rerank] API 返回 %d 条, top3_scores=%s",
+                    len(results),
+                    [f"{s:.4f}" for _, s in indexed[:3]])
         indexed.sort(key=lambda x: x[1], reverse=True)
 
         ranked = []

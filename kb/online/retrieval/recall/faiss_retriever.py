@@ -1,5 +1,6 @@
 import os
 import pickle
+import logging
 from typing import Any
 
 import numpy as np
@@ -10,6 +11,8 @@ from kb.offline.config.mongodb_config import MongoConfig
 from kb.offline.config.env_loader import load_project_env
 
 load_project_env()
+
+logger = logging.getLogger(__name__)
 
 FAISS_INDEX_PATH = str(PROCESSED_INDEX_DIR / "faiss.index")
 FAISS_IDS_PATH = str(PROCESSED_INDEX_DIR / "faiss_ids.pkl")
@@ -51,6 +54,9 @@ class FaissRetriever:
 
         scores, indices = _index.search(dense_vector, topk)
 
+        logger.debug("[FAISS] query=%s, topk=%d, top3_scores=%s",
+                     query, topk, [f"{s:.4f}" for s in scores[0][:3]])
+
         related_docs = []
         for idx in indices[0]:
             if idx < 0 or idx >= len(_ids_list):
@@ -65,6 +71,7 @@ class FaissRetriever:
             )
             related_docs.append(doc)
 
+        logger.debug("[FAISS] 有效召回 %d 条 (MongoDB 回查后)", len(related_docs))
         return related_docs
 
     @staticmethod

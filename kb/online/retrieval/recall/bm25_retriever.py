@@ -1,5 +1,6 @@
 import os
 import pickle
+import logging
 import jieba
 import hashlib
 from langchain_core.documents import Document
@@ -10,6 +11,8 @@ from kb.offline.config.settings import bm25_pickle_path, stopwords_path
 with open(stopwords_path) as fd:
     tokens = fd.readlines()
     _stopwords = [t.strip() for t in tokens]
+
+logger = logging.getLogger(__name__)
 
 
 class BM25(object):
@@ -36,7 +39,9 @@ class BM25(object):
 
     def retrieve_topk(self, query, topk=10):
         self.retriever.k = topk
-        return self.retriever.invoke(query)
+        docs = self.retriever.invoke(query)
+        logger.debug("[BM25] query=%s, topk=%d, 实际召回 %d 条", query, topk, len(docs))
+        return docs
 
 
 if __name__ == "__main__":

@@ -1,4 +1,5 @@
 import re
+import logging
 from typing import Any
 
 from langchain_core.documents import Document
@@ -6,11 +7,14 @@ from kb.offline.config.mongodb_config import MongoConfig
 
 manual_collection = MongoConfig.get_collection("manual_text")
 
+logger = logging.getLogger(__name__)
+
 
 def merge_docs(docs1, docs2):
     """按 parent_id / unique_id 合并去重。"""
     merged_docs = []
     merged_ids = set()
+    parent_replaced = 0
     candidate_docs = docs1 + docs2
     for doc in candidate_docs:
         parent_id = doc.metadata.get("parent_id")
@@ -23,11 +27,14 @@ def merge_docs(docs1, docs2):
                 merged_ids.add(unique_id)
                 parent_doc = Document(page_content=parent_mg["page_content"], metadata=parent_mg["metadata"])
                 merged_docs.append(parent_doc)
+                parent_replaced += 1
         else:
             unique_id = doc.metadata.get("unique_id")
             if unique_id and unique_id not in merged_ids:
                 merged_ids.add(unique_id)
                 merged_docs.append(doc)
+    logger.debug("[Merge] 输入 %d 条, 去重后 %d 条, 子块→父块替换 %d 个",
+                 len(candidate_docs), len(merged_docs), parent_replaced)
     return merged_docs
 
 
@@ -50,7 +57,12 @@ def rrf_rank(docs_lists: list[list[Document]], k: int = 60) -> list[Document]:
             scores[unique_id]["score"] += 1.0 / (k + rank + 1)
 
     ranked = sorted(scores.values(), key=lambda x: x["score"], reverse=True)
-    return [item["doc"] for item in ranked]
+    result = [item["doc"] for item in ranked]
+    if result:
+        logger.debug("[RRF] 输入 %d 路, 输出 %d 条, top3_scores=%s",
+                     len(docs_lists), len(result),
+                     [f"{item['score']:.2f}" for item in ranked[:3]])
+    return result
 
 
 def post_processing(response, docs):
