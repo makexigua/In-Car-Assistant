@@ -1,3 +1,6 @@
+import eventlet
+eventlet.monkey_patch()
+
 import json
 import os
 import time
@@ -18,7 +21,7 @@ from main.utils.env_loader import load_project_env
 from main.utils.session_memory import add_user_query, complete_answer, get_session_turns
 
 
-socketio = SocketIO(cors_allowed_origins='*', async_mode='threading')
+socketio = SocketIO(cors_allowed_origins='*')
 app = Flask(__name__)
 app.config["JSON_AS_ASCII"] = False
 socketio.init_app(app)
@@ -275,7 +278,6 @@ def inference(req):
 if __name__ == "__main__":
     socketio.run(
         app,
-        allow_unsafe_werkzeug=True,
         host='0.0.0.0',
         debug=True,
         port=os.getenv("FLASK_SERVER_PORT", 8080)

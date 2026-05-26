@@ -37,236 +37,6 @@ const SESSION_SENDER_ID = `web-${PAGE_OPEN_TS}`;
 const SpeechRecognitionConstructor =
   globalThis.SpeechRecognition || globalThis.webkitSpeechRecognition || null;
 
-class SocketIoPollingClient {
-  constructor(baseUrl) {
-    this.baseUrl = normalizeBaseUrl(baseUrl);
-    this.sid = "";
-    this.closed = true;
-    this.connected = false;
-    this.handlers = new Map();
-    this.postQueue = Promise.resolve();
-    this.pollAbortController = null;
-  }
-
-  on(eventName, handler) {
-    const handlers = this.handlers.get(eventName) || [];
-    handlers.push(handler);
-    this.handlers.set(eventName, handlers);
-  }
-
-  isConnected() {
-    return this.connected && !this.closed;
-  }
-
-  async connect() {
-    this.closed = false;
-
-    try {
-      const response = await fetch(this.buildUrl(), {
-        method: "GET",
-        cache: "no-store",
-      });
-      const payload = await readSocketResponse(response);
-      this.processPayload(payload);
-
-      // Engine.IO 握手成功后，发送 Socket.IO 默认命名空间连接包。
-      await this.sendPacket("40");
-      this.pollLoop();
-    } catch (error) {
-      this.fail(error);
-    }
-  }
-
-  disconnect() {
-    this.closed = true;
-
-    if (this.pollAbortController) {
-      this.pollAbortController.abort();
-      this.pollAbortController = null;
-    }
-
-    if (this.sid) {
-      this.sendPacket("41").catch(() => {});
-    }
-
-    this.connected = false;
-    this.emitLocal("disconnect");
-  }
-
-  async emit(eventName, payload) {
-    if (!this.isConnected()) {
-      throw new Error("Socket.IO 连接还没有建立");
-    }
-
-    // 后端 request_agent(req) 里会 json.loads(req)，所以这里传字符串。
-    const socketPacket = `42${JSON.stringify([eventName, payload])}`;
-    await this.sendPacket(socketPacket);
-  }
-
-  async pollLoop() {
-    while (!this.closed) {
-      try {
-        this.pollAbortController = new AbortController();
-        const response = await fetch(this.buildUrl(), {
-          method: "GET",
-          cache: "no-store",
-          signal: this.pollAbortController.signal,
-        });
-        const payload = await readSocketResponse(response);
-        this.processPayload(payload);
-      } catch (error) {
-        if (!this.closed) {
-          this.fail(error);
-        }
-      }
-    }
-  }
-
-  async sendPacket(packet) {
-    // Engine.IO 要求同一个连接上不要并发 POST，这里用队列串起来。
-    this.postQueue = this.postQueue.then(async () => {
-      if (this.closed && packet !== "41") {
-        return;
-      }
-
-      const response = await fetch(this.buildUrl(), {
-        method: "POST",
-        headers: {
-          "Content-Type": "text/plain;charset=UTF-8",
-        },
-        body: packet,
-      });
-      const payload = await readSocketResponse(response);
-      this.processPayload(payload);
-    });
-
-    return this.postQueue;
-  }
-
-  buildUrl() {
-    const base = new URL(this.baseUrl);
-    const socketPath = normalizeSocketPath(base.pathname);
-    const url = new URL(`${socketPath}/socket.io/`, `${base.protocol}//${base.host}`);
-
-    url.searchParams.set("EIO", "4");
-    url.searchParams.set("transport", "polling");
-    url.searchParams.set("t", `${Date.now()}${Math.random().toString(16).slice(2)}`);
-
-    if (this.sid) {
-      url.searchParams.set("sid", this.sid);
-    }
-
-    return url.toString();
-  }
-
-  processPayload(payload) {
-    if (!payload || payload === "ok") {
-      return;
-    }
-
-    // Engine.IO v4 的 polling 响应里，多个包会用 ASCII 记录分隔符隔开。
-    const packets = payload.split("\x1e").filter(Boolean);
-    packets.forEach((packet) => this.processEnginePacket(packet));
-  }
-
-  processEnginePacket(packet) {
-    const engineType = packet.charAt(0);
-    const body = packet.slice(1);
-
-    if (engineType === "0") {
-      const handshake = JSON.parse(body);
-      this.sid = handshake.sid;
-      return;
-    }
-
-    if (engineType === "1") {
-      this.connected = false;
-      this.emitLocal("disconnect");
-      return;
-    }
-
-    if (engineType === "2") {
-      // 服务端 ping，客户端必须 pong，否则后端会认为前端掉线。
-      this.sendPacket("3").catch((error) => this.emitLocal("error", error));
-      return;
-    }
-
-    if (engineType === "3" || engineType === "6") {
-      return;
-    }
-
-    if (engineType === "4") {
-      this.processSocketPacket(body);
-    }
-  }
-
-  processSocketPacket(packet) {
-    const socketType = packet.charAt(0);
-    const body = packet.slice(1);
-
-    if (socketType === "0") {
-      this.connected = true;
-      this.emitLocal("connect");
-      return;
-    }
-
-    if (socketType === "1") {
-      this.connected = false;
-      this.emitLocal("disconnect");
-      return;
-    }
-
-    if (socketType === "2") {
-      const jsonStart = body.indexOf("[");
-      if (jsonStart === -1) {
-        return;
-      }
-
-      const args = JSON.parse(body.slice(jsonStart));
-      const [eventName, ...eventArgs] = args;
-      this.emitLocal(eventName, ...eventArgs);
-      return;
-    }
-
-    if (socketType === "4") {
-      this.emitLocal("error", new Error(body || "Socket.IO 返回错误"));
-    }
-  }
-
-  emitLocal(eventName, ...args) {
-    const handlers = this.handlers.get(eventName) || [];
-    handlers.forEach((handler) => handler(...args));
-  }
-
-  fail(error) {
-    this.closed = true;
-    this.connected = false;
-
-    if (this.pollAbortController) {
-      this.pollAbortController.abort();
-      this.pollAbortController = null;
-    }
-
-    this.emitLocal("error", error);
-    this.emitLocal("disconnect");
-  }
-}
-
-function normalizeSocketPath(pathname) {
-  const path = pathname.replace(/\/+$/, "");
-  return path === "/" ? "" : path;
-}
-
-function normalizeBaseUrl(value) {
-  return value.trim().replace(/\/+$/, "");
-}
-
-async function readSocketResponse(response) {
-  if (!response.ok) {
-    throw new Error(`请求失败：${response.status}`);
-  }
-  return response.text();
-}
 
 function getAutoServerUrl() {
   // 同域部署时最省心：页面在哪个域名打开，就连哪个域名的后端。
@@ -437,17 +207,25 @@ function connectToBackend() {
   }
 
   setConnectionStatus("connecting", "连接中");
-  socketClient = new SocketIoPollingClient(serverUrl);
+  socketClient = io(serverUrl, {
+    transports: ["websocket", "polling"],
+    reconnection: true,
+    reconnectionAttempts: Infinity,
+    reconnectionDelay: 2000,
+  });
 
   socketClient.on("connect", () => {
     setConnectionStatus("online", "已连接");
   });
 
-  socketClient.on("disconnect", () => {
+  socketClient.on("disconnect", (reason) => {
     setConnectionStatus("offline", "已断开");
+    if (reason === "io server disconnect") {
+      connectToBackend();
+    }
   });
 
-  socketClient.on("error", (error) => {
+  socketClient.on("connect_error", (error) => {
     setConnectionStatus("offline", "连接失败");
     appendSystemMessage(`连接后端失败：${error.message}`);
   });
@@ -455,8 +233,6 @@ function connectToBackend() {
   socketClient.on("request_agent", (payload) => {
     handleAgentFrame(payload);
   });
-
-  socketClient.connect();
 }
 
 function setConnectionStatus(status, text) {
@@ -475,7 +251,7 @@ async function sendQuery() {
     speechRecognition.stop();
   }
 
-  if (!socketClient || !socketClient.isConnected()) {
+  if (!socketClient || !socketClient.connected) {
     appendSystemMessage("后端还没有连上，请检查地址后点重连。");
     connectToBackend();
     return;
@@ -497,7 +273,7 @@ async function sendQuery() {
   };
 
   try {
-    await socketClient.emit("request_agent", JSON.stringify(payload));
+    socketClient.emit("request_agent", JSON.stringify(payload));
   } catch (error) {
     finishAssistantMessage("发送失败，请稍后再试。", { isError: true });
     appendSystemMessage(error.message);

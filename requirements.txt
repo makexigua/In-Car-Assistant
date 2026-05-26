@@ -1,6 +1,7 @@
 # Web / API
 flask
 flask-socketio
+eventlet
 fastapi
 uvicorn
 sse-starlette
