@@ -3,7 +3,7 @@
 ## 项目定位
 
 车载智能助手，针对特斯拉 Model 3，支持：
-- **知识问答 (FAQ)** — 基于 RAG 检索用户手册，回答用车问题
+- **知识问答 (RAG)** — 基于 RAG 检索用户手册，回答用车问题
 - **任务执行 (TASK)** — 通过意图识别 + function calling 执行车载操作（开关空调、座椅加热等）
 - **闲聊 (CHAT)** — 开放域自由对话兜底
 
@@ -14,7 +14,7 @@
 | 层 | 技术 |
 |------|------|
 | 前端 | 纯 HTML + 原生 JS，零 npm/构建依赖 |
-| 后端框架 | Flask + Flask-SocketIO（Polling 传输） |
+| 后端框架 | Flask + HTTP Streaming（newline-delimited JSON） |
 | 大模型 | LLM API 调用（兼容 OpenAI 协议） |
 | 向量检索 | FAISS (dense) + BM25 (sparse) + BGE-M3 ReRanker |
 | 会话缓存 | Redis（短期记忆，60s 过期，最大 3 轮） |
@@ -30,16 +30,16 @@
 ├── web/                        # 前端（纯静态，无构建）
 │   ├── index.html              # 主页面
 │   ├── styles.css              # 样式
-│   └── app.js                  # 核心逻辑（手写 Socket.IO Polling 客户端）
+│   └── app.js                  # 核心逻辑（HTTP Stream + fetch ReadableStream）
 │
 ├── main/                       # 后端主链路（Flask 入口 + 流程编排）
-│   ├── start.py                # 服务入口（Flask + SocketIO，端口 8080）
+│   ├── start.py                # 服务入口（Flask + HTTP Streaming，端口 8080）
 │   │
 │   ├── client/                 # 各模块调用封装
 │   │   ├── reject.py           # 拒识 → 判断问题是否合法
 │   │   ├── rewrite.py          # 改写 → 结合历史做指代消解
-│   │   ├── arbitration.py      # 仲裁 → 分流 task/faq/chat
-│   │   ├── rag.py              # FAQ → 调用 kb/online RAG 链路
+│   │   ├── arbitration.py      # 仲裁 → 分流 task/rag/chat
+│   │   ├── rag.py              # RAG → 调用 kb/online RAG 链路
 │   │   ├── task.py             # TASK → 调用 task/pipeline 链路
 │   │   └── chat.py             # CHAT → 调用聊天 skill + 流式切帧
 │   │
@@ -120,7 +120,7 @@
 ## 核心请求处理流程
 
 ```
-用户输入 → web/app.js → Socket.IO Polling POST → main/start.py
+用户输入 → web/app.js → POST /agent (HTTP Stream) → main/start.py
                                                         │
                                                     ┌───┴───┐
                                                     │ 拒识   │ ← LLM: 判断是否合法
@@ -139,7 +139,7 @@
                      ┌──────────────────────────────────┼──────────────────────┐
                      ▼                                  ▼                      ▼
                ┌──────────┐                     ┌──────────────┐      ┌──────────────┐
-               │  TASK    │                     │  FAQ (RAG)   │      │  CHAT        │
+               │  TASK    │                     │  RAG          │      │  CHAT        │
                │ 任务执行  │                     │ 知识库问答    │      │ 闲聊         │
                │          │                     │              │      │              │
                │ intent   │                     │ FAISS 召回   │      │ chat skill   │
@@ -152,9 +152,10 @@
                     │                                  │                     │
                     └──────────────────────────────────┼─────────────────────┘
                                                        ▼
-                                          send_msg(status, frame)
+                                          HTTP Streaming (NDJSON)
+                                          POST /agent 流式返回每行一个 JSON
                                                        │
-                                          Socket.IO Polling ← 前端 app.js
+                                          fetch ReadableStream ← 前端 app.js
                                                         │
                                                    展示气泡 + meta 标签
 ```
@@ -171,9 +172,9 @@
 
 | 入口 | 文件 | 说明 |
 |------|------|------|
-| 服务启动 | [main/start.py](main/start.py) | Flask 入口，`request_agent` 事件处理主循环 |
+| 服务启动 | [main/start.py](main/start.py) | Flask 入口，`POST /agent` 流式处理 |
 | 前端页面 | [web/index.html](web/index.html) | 问答界面，语音输入按钮 |
-| 前端逻辑 | [web/app.js](web/app.js) | Socket.IO Polling 客户端，UI 渲染 |
+| 前端逻辑 | [web/app.js](web/app.js) | HTTP Stream + fetch ReadableStream 客户端，UI 渲染 |
 | 技能调度 | [main/skills/runtime.py](main/skills/runtime.py) | LLM skill 加载/调用引擎（核心复用模块） |
 | 任务链路 | [task/pipeline.py](task/pipeline.py) | intent → execute → NLG 编排 |
 | RAG 在线 | [kb/online/pipeline.py](kb/online/pipeline.py) | 双路召回 + 重排 + LLM 问答 |
@@ -186,12 +187,12 @@
 
 ## 通信方式
 
-- **协议**: Socket.IO v4 Polling（HTTP 长轮询，非 WebSocket）
-- **前端**: 手写 `SocketIoPollingClient`，零外部依赖
-- **后端**: `Flask-SocketIO`（threading 模式）
+- **协议**: HTTP Streaming（newline-delimited JSON）
+- **前端**: `fetch` + `ReadableStream`，逐行解析 JSON
+- **后端**: `Flask` + `stream_with_context`，生成器逐行 yield JSON
 - **音频输入**: 浏览器原生 `SpeechRecognition` API（需 HTTPS）
 
-前端不依赖 npm 构建的原因：纯手写 HTML + JS，文件丢到 Nginx 或浏览器直接打开就能跑。
+前端零 npm 依赖，纯手写 HTML + JS，文件丢到 Nginx 或直接打开就能跑。调试方便，`curl` 即可查看完整流式返回。
 
 ---
 
@@ -260,14 +261,14 @@ curl http://localhost:8080/debug/session/{sender_id}
 
 | 决策 | 原因 |
 |------|------|
-| 前端手写 Polling 而非 WebSocket | 无构建、单文件、不用处理二进制帧，实现复杂度 1/3 |
-| 选 Flask 而非 FastAPI | LLM 调用是同步等待，async 无收益；Flask-SocketIO 生态更成熟 |
+| 前端手写 HTTP Streaming 而非 WebSocket | 协议简单，curl 可调试，nginx 原生支持，无状态易扩展 |
+| 选 Flask 而非 FastAPI | LLM 调用是同步等待，async 无收益；`stream_with_context` 足以满足流式需求 |
 | Skill 用 Markdown 文件 | prompt 和运行参数分离（详见 [runtime.py](main/skills/runtime.py)） |
 | RAG 的双路召回 | FAISS (语义) + BM25 (词法) 互补，RRF 融合、Rerank 精排 |
 | Chunk 策略 | 语义切分（标题→空行→LLM）→ 递归切分（256/50 tokens）两层结构 |
 | Redis 短期记忆 | 60s 自动过期，避免记忆堆积；用于改写 + 仲裁 + 闲聊三模块 |
 | 帧协议（status 0/1/2/-1） | 统一流式/非流式输出格式，前端渲染逻辑一致 |
-| FAQ 空答案兜底 | RAG 无命中时自动降级到 CHAT 链路，保证用户始终有回复 |
+| RAG 空答案兜底 | RAG 无命中时自动降级到 CHAT 链路，保证用户始终有回复 |
 | 改写回退保护 | 改写结果与原句字词重叠 < 25% 时用原句，防止 LLM 过度改写 |
 
 ---
@@ -281,8 +282,8 @@ python kb/offline/pipeline.py
 # 查看当前环境变量配置
 python -c "from dotenv import load_dotenv; load_dotenv(); import os; print(os.environ.get('LLM_BASE_URL'))"
 
-# 测试单条 query 走完整链路
-curl -X POST http://localhost:8080 -d '{"query":"怎么开空调"}'  # 需要查 SocketIO 格式
+# 测试单条 query 走完整链路（newline-delimited JSON 流式返回）
+curl -X POST http://localhost:8080/agent -H "Content-Type: application/json" -d '{"query":"怎么开空调","sender_id":"test","trace_id":"t1"}'
 
 # 清空 Redis 会话
 redis-cli KEYS "voice:session:*" | xargs redis-cli DEL

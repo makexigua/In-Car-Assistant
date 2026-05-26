@@ -1,4 +1,4 @@
-# 作用：调用 arbitration skill，把用户请求分流成 task / faq / chat 三类。
+# 作用：调用 arbitration skill，把用户请求分流成 task / rag / chat 三类。
 
 import json
 import time
@@ -44,7 +44,7 @@ def _to_route(code: str) -> str:
     if code in ["C", "D"]:
         return "chat"
     if code == "B":
-        return "faq"
+        return "rag"
     return "task"
 
 

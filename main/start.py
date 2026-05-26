@@ -30,7 +30,7 @@ ENABLE_DEBUG_API = os.getenv("ENABLE_DEBUG_API", "false").strip().lower() in ("1
 INTENT_META = {
     "REJECT": ("拒识", "400"),
     "TASK": ("任务执行", "401"),
-    "FAQ": ("知识库问答", "402"),
+    "RAG": ("知识库问答", "402"),
     "CHAT": ("闲聊百科", "403"),
 }
 
@@ -148,17 +148,17 @@ def inference():
                     complete_answer(sender_id=sender_id, trace_id=trace_id, route="task",
                                     answer=DEFAULT_NLG, query_fallback=ori_query)
 
-            # 6) FAQ 链路
-            elif arbitration_result == "faq":
+            # 6) RAG 链路
+            elif arbitration_result == "rag":
                 rag_result = request_rag(query, trace_id, sender_id)
                 answer = rag_result.get("answer", "")
                 if answer:
-                    faq_payload = _build_template(ori_query, trace_id, begin)
-                    yield _encode_frame(faq_payload, "FAQ", answer, 1, time.time() - begin, status=2)
-                    complete_answer(sender_id=sender_id, trace_id=trace_id, route="faq",
+                    rag_payload = _build_template(ori_query, trace_id, begin)
+                    yield _encode_frame(rag_payload, "RAG", answer, 1, time.time() - begin, status=2)
+                    complete_answer(sender_id=sender_id, trace_id=trace_id, route="rag",
                                     answer=answer, query_fallback=ori_query)
                 else:
-                    # FAQ 无答案 → 闲聊兜底
+                    # RAG 无答案 → 闲聊兜底
                     yield from _chat_stream(template, query, sender_id, trace_id, begin, ori_query)
 
             # 7) 闲聊链路

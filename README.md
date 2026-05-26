@@ -18,7 +18,7 @@
 每个 `sender_id` 对应独立会话，value 是最近 3 轮对话数组，每轮包含：
 - `query`：用户原始输入
 - `answer`：本轮最终回答（task / rag / chat 产物）
-- `route`：本轮走的链路（`task` / `faq` / `chat`）
+- `route`：本轮走的链路（`task` / `rag` / `chat`）
 - `trace_id`：请求唯一标识
 - `created_at` / `updated_at` / `expires_at`：时间字段
 
