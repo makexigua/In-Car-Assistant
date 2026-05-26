@@ -67,9 +67,9 @@ def rrf_rank(docs_lists: list[list[Document]], k: int = 60) -> list[Document]:
 
 def post_processing(response, docs):
     """
-    解析 LLM 输出，提取引用编号、引用页码和相关图片。
+    解析 LLM 输出，提取页码和相关图片。
 
-    docs 必须与拼 context 的列表一致（context_docs），否则引用编号错位。
+    docs 用于匹配页码关联的图片信息。
     """
     all_cites = re.findall("[【](.*?)[】]", response)
     cites = []
@@ -78,31 +78,34 @@ def post_processing(response, docs):
         cite = cite.replace(",", "，")
         cite = [int(k) for k in cite.split("，") if k.isdigit()]
         cites.extend(cite)
-    cites = list(set(cites))
+    cites = sorted(set(cites))
     answer = re.sub("[【](.*?)[】]", "", response)
     answer = re.sub("[{}【】]", "", answer)
     answer = answer.strip()
 
     related_images = []
     seen_images = set()
-    pages = []
-    for index in cites:
-        if index < 1 or index > len(docs):
-            continue
-        doc = docs[index - 1]
-        images = doc.metadata.get("images_info", [])
-        pages.append(doc.metadata.get("page"))
-        for image in images:
-            if not image.get("title"):
+    for page_num in cites:
+        for doc in docs:
+            doc_page = doc.metadata.get("page")
+            if doc_page is None:
                 continue
-            img_key = image.get("image_path", "")
-            if img_key and img_key not in seen_images:
-                seen_images.add(img_key)
-                related_images.append(image)
-    pages = sorted(list(set(pages)))
+            try:
+                if int(doc_page) != page_num:
+                    continue
+            except (ValueError, TypeError):
+                continue
+            images = doc.metadata.get("images_info", [])
+            for image in images:
+                if not image.get("title"):
+                    continue
+                img_key = image.get("image_path", "")
+                if img_key and img_key not in seen_images:
+                    seen_images.add(img_key)
+                    related_images.append(image)
     return {
         "answer": answer,
-        "citations": sorted(cites),
-        "cite_pages": pages,
+        "citations": cites,
+        "cite_pages": cites,
         "related_images": related_images,
     }
