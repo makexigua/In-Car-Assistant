@@ -1,5 +1,6 @@
 # 作用：RAG 链路入口，调用 kb/online RAG 链路。
 
+import traceback
 from typing import Any, Dict
 
 from main.utils import logger
@@ -27,4 +28,5 @@ def request_rag(query: str, trace_id: str, sender_id: str) -> Dict[str, Any]:
         return result
     except Exception as err:
         logger.error(f"rag pipeline failed: {err}")
+        traceback.print_exc()
         return {"answer": "", "hit": False}
