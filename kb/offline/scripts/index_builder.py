@@ -51,10 +51,16 @@ def _tokenize(text: str) -> list[str]:
 
 
 class IndexBuilder:
-    """统一索引构建器：负责将文档写入 MongoDB、Milvus、BM25、FAISS。"""
+    """统一索引构建器：负责将文档写入 MongoDB、Milvus、BM25、FAISS。
 
-    def __init__(self, docs: list[Document]):
-        self.docs = docs
+    Args:
+        retrieval_docs: 子块 + 小父块 → 写入 FAISS/BM25（检索索引）
+        parent_docs:    所有父块 → 写入 MongoDB（文档存储，供子块回查）
+    """
+
+    def __init__(self, retrieval_docs: list[Document], parent_docs: list[Document]):
+        self.retrieval_docs = retrieval_docs
+        self.parent_docs = parent_docs
 
     def build_all(self):
         """一键构建全部索引。"""
@@ -64,13 +70,17 @@ class IndexBuilder:
         # self.build_milvus()
 
     def build_mongodb(self, collection_name: str = "manual_text"):
-        """将文档批量写入 MongoDB。"""
+        """将所有文档写入 MongoDB（父子都存，供 FAISS 回查 + merge_docs 替换为父块）。"""
         collection = MongoConfig.get_collection(collection_name)
-        for doc in tqdm(self.docs, desc="MongoDB"):
+        # 去重合并：子块/小父块用于 FAISS 回查命中，父块用于 merge_docs 替换
+        all_docs = self.retrieval_docs + self.parent_docs
+        seen = set()
+        for doc in tqdm(all_docs, desc="MongoDB"):
             metadata = doc.metadata
             unique_id = metadata.get("unique_id")
-            if not unique_id:
+            if not unique_id or unique_id in seen:
                 continue
+            seen.add(unique_id)
 
             doc_record = ManualInfo(
                 unique_id=unique_id,
@@ -82,24 +92,24 @@ class IndexBuilder:
                 {"$set": doc_record.model_dump()},
                 upsert=True,
             )
-        print(f"MongoDB 写入完成，共 {len(self.docs)} 条")
+        print(f"MongoDB 写入完成，共 {len(seen)} 条（父块 {len(self.parent_docs)} + 检索单元 {len(self.retrieval_docs)}，去重）")
 
     def build_bm25(self):
-        """构建 BM25 索引并持久化到本地。"""
-        retriever = BM25Retriever.from_documents(self.docs, preprocess_func=_tokenize)
+        """构建 BM25 索引（仅子块 + 小父块）。"""
+        retriever = BM25Retriever.from_documents(self.retrieval_docs, preprocess_func=_tokenize)
         pickle.dump(retriever, open(bm25_pickle_path, "wb"))
-        print(f"BM25 索引构建完成，已持久化到 {bm25_pickle_path}")
+        print(f"BM25 索引构建完成，共 {len(self.retrieval_docs)} 条")
 
     def build_faiss(self):
-        """构建 FAISS dense 向量索引（通过 Embedding API）。"""
+        """构建 FAISS dense 向量索引（仅子块 + 小父块）。"""
         try:
             import faiss
         except ImportError:
             print("faiss 未安装，跳过 FAISS 索引构建。")
             return
 
-        raw_texts = [doc.page_content for doc in self.docs]
-        unique_ids = [doc.metadata["unique_id"] for doc in self.docs]
+        raw_texts = [doc.page_content for doc in self.retrieval_docs]
+        unique_ids = [doc.metadata["unique_id"] for doc in self.retrieval_docs]
 
         # 通过大模型 Embedding API 获取向量
         embeddings = self._get_embeddings_via_api(raw_texts)
@@ -115,7 +125,7 @@ class IndexBuilder:
         faiss.write_index(index, FAISS_INDEX_PATH)
         pickle.dump(unique_ids, open(FAISS_IDS_PATH, "wb"))
 
-        print(f"FAISS 索引构建完成（API embedding），共 {len(self.docs)} 条，维度 {dim}")
+        print(f"FAISS 索引构建完成（API embedding），共 {len(self.retrieval_docs)} 条，维度 {dim}")
 
     @staticmethod
     def _get_embeddings_via_api(texts: list[str], batch_size: int = 64) -> list[list[float]]:
@@ -182,11 +192,11 @@ class IndexBuilder:
         col.create_index("dense_vector", dense_index)
         col.load()
 
-        raw_texts = [doc.page_content for doc in self.docs]
-        unique_ids = [doc.metadata["unique_id"] for doc in self.docs]
+        raw_texts = [doc.page_content for doc in self.retrieval_docs]
+        unique_ids = [doc.metadata["unique_id"] for doc in self.retrieval_docs]
         texts_embeddings = embedding_handler(raw_texts)
 
-        for i in range(0, len(self.docs), EMB_BATCH):
+        for i in range(0, len(self.retrieval_docs), EMB_BATCH):
             batched_entities = [
                 unique_ids[i : i + EMB_BATCH],
                 raw_texts[i : i + EMB_BATCH],

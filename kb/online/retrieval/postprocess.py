@@ -16,6 +16,8 @@ def merge_docs(docs1, docs2):
         parent_id = doc.metadata.get("parent_id")
         if parent_id:
             parent_mg = manual_collection.find_one({"unique_id": parent_id})
+            if not parent_mg:
+                continue
             unique_id = parent_mg["unique_id"]
             if unique_id and unique_id not in merged_ids:
                 merged_ids.add(unique_id)

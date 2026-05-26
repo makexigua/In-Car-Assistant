@@ -30,15 +30,21 @@ def main() -> None:
 
     # 文档切分
     if not os.path.exists(split_docs_path):
-        split_docs_result = split(cleaned_docs)
-        print("解析后文档总数:", len(split_docs_result))
-        pickle.dump(split_docs_result, open(split_docs_path, "wb"))
+        split_result = split(cleaned_docs)
+        retrieval_docs, parent_docs = split_result
+        print(f"检索单元（子块+小父块）: {len(retrieval_docs)} 条，父块: {len(parent_docs)} 条")
+        pickle.dump(split_result, open(split_docs_path, "wb"))
     else:
-        split_docs_result = pickle.load(open(split_docs_path, "rb"))
-        print("加载解析文档总数:", len(split_docs_result))
+        split_result = pickle.load(open(split_docs_path, "rb"))
+        # 兼容旧格式（单列表 → 新旧都当检索+父块用）
+        if isinstance(split_result, tuple):
+            retrieval_docs, parent_docs = split_result
+        else:
+            retrieval_docs = parent_docs = split_result
+        print(f"加载切分文档，检索单元: {len(retrieval_docs)} 条，父块: {len(parent_docs)} 条")
 
     # 索引入库
-    builder = IndexBuilder(split_docs_result)
+    builder = IndexBuilder(retrieval_docs, parent_docs)
     builder.build_all()
 
 

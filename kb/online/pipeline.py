@@ -62,10 +62,11 @@ def process(query: str) -> dict:
     # 4. rerank
     ranked_docs = _components["reranker"].rank(query, rrf_docs, topk=RERANK_TOPK)
 
-    # 5. LLM 生成答案
+    # 5. 子块替换为父块，拼 context
+    context_docs = merge_docs(ranked_docs, [])
     context = "\n".join([
         f"【{idx + 1}】{doc.page_content}"
-        for idx, doc in enumerate(ranked_docs)
+        for idx, doc in enumerate(context_docs)
     ])
     raw_answer = request_chat(query, context, stream=False)
     answer = _normalize_answer(raw_answer)
