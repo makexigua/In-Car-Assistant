@@ -1,5 +1,6 @@
 import os
 import re
+from typing import Any
 from pathlib import Path
 
 from kb.online.retrieval.recall.bm25_retriever import BM25
