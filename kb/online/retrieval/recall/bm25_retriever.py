@@ -35,13 +35,8 @@ class BM25(object):
 
 
     def retrieve_topk(self, query, topk=10):
-        # 获得得分在topk的文档和分数
         self.retriever.k = topk
-        # query_tokens = jieba.cut_for_search(query)
-        # query_tokens_filter = [t for t in query_tokens if t not in _stopwords]
-        # query = " ".join(query_tokens_filter)
-        ans_docs = self.retriever.get_relevant_documents(query)
-        return ans_docs
+        return self.retriever.invoke(query)
 
 
 if __name__ == "__main__":
