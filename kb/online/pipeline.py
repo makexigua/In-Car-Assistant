@@ -5,7 +5,7 @@ from pathlib import Path
 
 from kb.online.retrieval.recall.bm25_retriever import BM25
 from kb.online.retrieval.recall.faiss_retriever import FaissRetriever
-from kb.online.retrieval.rerank.bge_m3_reranker import BGEM3ReRanker
+from kb.online.retrieval.rerank.reranker import ApiReranker
 from kb.online.retrieval.postprocess import merge_docs, rrf_rank
 from kb.online.config.llm_client import request_chat
 from kb.offline.config.settings import RERANK_MODEL
@@ -30,7 +30,7 @@ def _init_components():
 
     _components["bm25"] = BM25(docs=None, retrieve=True)
     _components["faiss"] = FaissRetriever(docs=None, retrieve=True)
-    _components["reranker"] = BGEM3ReRanker(model_path=RERANK_MODEL)
+    _components["reranker"] = ApiReranker(model_path=RERANK_MODEL)
 
 
 def process(query: str) -> dict:
