@@ -1,7 +1,7 @@
 from pathlib import Path
 import os
 
-from config.env_loader import load_project_env
+from kb.offline.config.env_loader import load_project_env
 
 load_project_env()
 

@@ -5,9 +5,9 @@ from tqdm import tqdm
 from langchain_core.documents import Document
 from typing_extensions import List
 
-from config import settings
-from config.models import ManualImages
-from scripts import image_handler
+from kb.offline.config import settings
+from kb.offline.config.models import ManualImages
+from kb.offline.scripts import image_handler
 
 
 # 全局配置

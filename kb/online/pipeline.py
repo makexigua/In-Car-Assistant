@@ -1,21 +1,12 @@
 import os
 import re
-import sys
 from pathlib import Path
 
-ONLINE_DIR = Path(__file__).resolve().parent
-PROJECT_ROOT = ONLINE_DIR.parents[1]
-
-if str(ONLINE_DIR) not in sys.path:
-    sys.path.insert(0, str(ONLINE_DIR))
-if str(PROJECT_ROOT) not in sys.path:
-    sys.path.insert(0, str(PROJECT_ROOT))
-
-from retrieval.recall.bm25_retriever import BM25
-from retrieval.recall.faiss_retriever import FaissRetriever
-from retrieval.rerank.bge_m3_reranker import BGEM3ReRanker
-from retrieval.postprocess import merge_docs, rrf_rank
-from config.llm_client import request_chat
+from kb.online.retrieval.recall.bm25_retriever import BM25
+from kb.online.retrieval.recall.faiss_retriever import FaissRetriever
+from kb.online.retrieval.rerank.bge_m3_reranker import BGEM3ReRanker
+from kb.online.retrieval.postprocess import merge_docs, rrf_rank
+from kb.online.config.llm_client import request_chat
 from kb.offline.config.settings import RERANK_MODEL
 from kb.offline.config.env_loader import load_project_env
 

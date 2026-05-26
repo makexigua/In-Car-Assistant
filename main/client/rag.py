@@ -17,14 +17,7 @@ def request_rag(query: str, trace_id: str, sender_id: str) -> Dict[str, Any]:
         return {"answer": "", "hit": False}
 
     try:
-        import sys
-        from pathlib import Path
-
-        online_dir = Path(__file__).resolve().parents[2] / "kb" / "online"
-        if str(online_dir) not in sys.path:
-            sys.path.insert(0, str(online_dir))
-
-        from pipeline import process
+        from kb.online.pipeline import process
     except Exception as err:
         logger.error(f"load online pipeline failed: {err}")
         return {"answer": "", "hit": False}

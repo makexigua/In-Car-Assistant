@@ -5,7 +5,7 @@ from tqdm import tqdm
 from langchain_core.documents import Document
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
-from scripts.semantic_splitter import semantic_split
+from kb.offline.scripts.semantic_splitter import semantic_split
 
 
 # 全局配置

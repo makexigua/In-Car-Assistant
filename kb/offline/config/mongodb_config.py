@@ -3,7 +3,7 @@ from pprint import pprint
 from pymongo import MongoClient
 from pymongo.errors import ConnectionFailure, ConfigurationError
 
-from config.env_loader import load_project_env
+from kb.offline.config.env_loader import load_project_env
 
 load_project_env()
 

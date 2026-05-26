@@ -1,22 +1,12 @@
 import os
 import pickle
-import sys
 from pathlib import Path
 
-OFFLINE_DIR = Path(__file__).resolve().parent
-KB_DIR = OFFLINE_DIR.parent
-ONLINE_DIR = KB_DIR / "online"
-
-if str(OFFLINE_DIR) not in sys.path:
-    sys.path.insert(0, str(OFFLINE_DIR))
-if str(ONLINE_DIR) not in sys.path:
-    sys.path.insert(0, str(ONLINE_DIR))
-
-from scripts.pdf_parser import load_pdf
-from scripts.text_cleaner import clean
-from scripts.doc_splitter import split
-from scripts.index_builder import IndexBuilder
-from config.settings import raw_docs_path, clean_docs_path, split_docs_path
+from kb.offline.scripts.pdf_parser import load_pdf
+from kb.offline.scripts.text_cleaner import clean
+from kb.offline.scripts.doc_splitter import split
+from kb.offline.scripts.index_builder import IndexBuilder
+from kb.offline.config.settings import raw_docs_path, clean_docs_path, split_docs_path
 
 
 def main() -> None:

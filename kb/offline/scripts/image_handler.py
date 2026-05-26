@@ -5,9 +5,9 @@ from typing import Tuple
 from pymongo.collection import Collection
 from typing_extensions import List
 
-from config import settings
-from config.models import ManualImages
-from config.mongodb_config import MongoConfig
+from kb.offline.config import settings
+from kb.offline.config.models import ManualImages
+from kb.offline.config.mongodb_config import MongoConfig
 
 # 全局配置
 manual_images_collection: Collection = MongoConfig.get_collection("manual_images")

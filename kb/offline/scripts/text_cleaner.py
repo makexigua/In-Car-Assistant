@@ -5,7 +5,7 @@ from more_itertools import divide
 from langchain_core.documents import Document
 from openai import OpenAI
 
-from config.env_loader import load_project_env
+from kb.offline.config.env_loader import load_project_env
 
 load_project_env()
 

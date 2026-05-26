@@ -17,16 +17,16 @@ from pymilvus import (
 )
 from pymilvus.model.hybrid import BGEM3EmbeddingFunction
 
-from config.settings import (
+from kb.offline.config.settings import (
     bm25_pickle_path,
     stopwords_path,
     milvus_db_path,
     EMBEDDING_MODEL,
     PROCESSED_INDEX_DIR,
 )
-from config.mongodb_config import MongoConfig
-from config.models import ManualInfo
-from config.env_loader import load_project_env
+from kb.offline.config.mongodb_config import MongoConfig
+from kb.offline.config.models import ManualInfo
+from kb.offline.config.env_loader import load_project_env
 
 load_project_env()
 
