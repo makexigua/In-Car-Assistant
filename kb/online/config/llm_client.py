@@ -22,8 +22,8 @@ LLM_CHAT_PROMPT = """
 
 
 llm_client = OpenAI(
-    api_key=os.getenv("LLM_API_KEY", ""),
-    base_url=os.getenv("LLM_BASE_URL", ""),
+    api_key=os.getenv("LLM_API_KEY", "").removeprefix("Bearer ").strip(),
+    base_url=os.getenv("LLM_BASE_URL", "").rstrip("/"),
 )
 
 

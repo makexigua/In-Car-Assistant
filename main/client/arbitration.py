@@ -1,9 +1,9 @@
 # 作用：调用 arbitration skill，把用户请求分流成 task / rag / chat 三类。
 
-import json
 import time
 
-import requests
+from openai import Stream
+from openai.types.chat import ChatCompletionChunk
 from main.skills.runtime import call_skill, is_llm_ready
 from main.utils import logger
 from main.utils.session_memory import build_role_history
@@ -12,31 +12,16 @@ from main.utils.session_memory import build_role_history
 SKILL_NAME = "arbitration"
 TIMEOUT = 60.0
 MAX_HIS = 3
-CHUNK_SIZE = 1024
 
 
-def _extract_code_from_stream(response: requests.Response) -> str:
+def _extract_code_from_stream(stream: Stream[ChatCompletionChunk]) -> str:
 
     code = "A"
-    for row in response.iter_lines(chunk_size=CHUNK_SIZE, decode_unicode=False, delimiter=b"\n"):
-        line = row.decode("utf-8").strip()
-        if not line:
-            continue
-
-        line = line.lstrip("data: ").strip()
-        if line == "[DONE]":
+    for chunk in stream:
+        content = chunk.choices[0].delta.content or ""
+        if content:
+            code = content.strip()
             break
-
-        try:
-            payload = json.loads(line)
-        except Exception:
-            continue
-
-        text = payload.get("choices", [{}])[0].get("delta", {}).get("content", "")
-        if text:
-            code = text
-            break
-
     return code
 
 
@@ -62,15 +47,14 @@ def request_arbitration(query, sender_id, trace_id=""):
     history.append({"role": "user", "content": query})
 
     try:
-        response = call_skill(
+        stream = call_skill(
             skill_name=SKILL_NAME,
             user_messages=history,
             timeout=TIMEOUT,
             stream_override=True,
             trace_id=trace_id,
         )
-        response.raise_for_status()
-        code = _extract_code_from_stream(response)
+        code = _extract_code_from_stream(stream)
         if code not in ["A", "B", "C", "D"]:
             code = "A"
 

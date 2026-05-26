@@ -46,8 +46,7 @@ def request_rewrite(query, sender_id, trace_id=""):
                 timeout=REQUEST_TIMEOUT,
                 trace_id=trace_id,
             )
-            response.raise_for_status()
-            result = response.json()["choices"][0]["message"]["content"]
+            result = response.choices[0].message.content
 
             # 防止误改过大：和原句重叠过少则回退。
             if len(set(result).intersection(query)) < len(query) / 4:

@@ -8,8 +8,8 @@ from kb.offline.config.env_loader import load_project_env
 load_project_env()
 
 llm_client = OpenAI(
-    api_key=os.getenv("LLM_API_KEY", ""),
-    base_url=os.getenv("LLM_BASE_URL", ""),
+    api_key=os.getenv("LLM_API_KEY", "").removeprefix("Bearer ").strip(),
+    base_url=os.getenv("LLM_BASE_URL", "").rstrip("/"),
 )
 
 LLM_SPLIT_PROMPT = """你是一个文档处理助手。请将以下文本按语义主题切分成若干段落。

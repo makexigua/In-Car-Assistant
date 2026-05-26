@@ -32,9 +32,8 @@ def request_reject(query, trace_id):
             timeout=REQUEST_TIMEOUT,
             trace_id=trace_id,
         )
-        response.raise_for_status()
-        raw = response.json()["choices"][0]["message"]["content"]
-        result = _normalize_reject_result(raw)
+        raw = response.choices[0].message.content
+        result = _normalize_reject_result(raw or "")
         logger.info(f"拒识模型输出：{raw}, normalize:{result}")
         return result
     except Exception as err:

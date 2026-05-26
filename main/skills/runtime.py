@@ -1,21 +1,26 @@
 # 作用：按需加载单个 skill 的 Markdown 提示词，并通过统一大模型 API 执行。
 
-import json
 import os
 from functools import lru_cache
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-import requests
 import yaml
+from openai import OpenAI
 
 from main.utils.env_loader import load_project_env
 
 
 load_project_env()
-LLM_API_KEY = os.getenv("LLM_API_KEY", "")
-LLM_BASE_URL = os.getenv("LLM_BASE_URL", "")
+LLM_API_KEY = os.getenv("LLM_API_KEY", "").removeprefix("Bearer ").strip()
+LLM_BASE_URL = os.getenv("LLM_BASE_URL", "").rstrip("/")
 SKILL_CONFIG_DIR = Path(__file__).resolve().parent / "config"
+
+# OpenAI SDK 兼容的请求参数白名单
+_OPENAI_PARAMS = frozenset({
+    "model", "messages", "temperature", "top_p", "max_tokens", "stream",
+    "stop", "frequency_penalty", "presence_penalty", "seed",
+})
 
 # 这些是“运行参数”，和 prompt 文案分离，避免把大段提示词堆在 yaml 文件里。
 SKILL_RUNTIME_OPTIONS: Dict[str, Dict[str, Any]] = {
@@ -164,6 +169,11 @@ def build_payload(
     return payload
 
 
+def _build_openai_params(payload: Dict[str, Any]) -> Dict[str, Any]:
+    """从 payload 中提取 OpenAI SDK 兼容的参数。"""
+    return {k: v for k, v in payload.items() if k in _OPENAI_PARAMS and v is not None}
+
+
 def call_skill(
     skill_name: str,
     user_messages: List[Dict[str, str]],
@@ -171,7 +181,8 @@ def call_skill(
     trace_id: str = "",
     stream_override: Optional[bool] = None,
     extra_fields: Optional[Dict[str, Any]] = None,
-) -> requests.Response:
+) -> Any:
+    """调用 LLM skill，返回 OpenAI SDK 的 ChatCompletion 或 Stream 对象。"""
 
     if not is_llm_ready():
         raise RuntimeError("LLM config missing: need LLM_BASE_URL and LLM_API_KEY")
@@ -184,12 +195,6 @@ def call_skill(
         extra_fields=extra_fields,
     )
 
-    headers = {"Authorization": LLM_API_KEY, "Content-Type": "application/json"}
-    is_stream = bool(payload.get("stream", False))
-    return requests.post(
-        f"{LLM_BASE_URL}/chat/completions",
-        headers=headers,
-        data=json.dumps(payload, ensure_ascii=False),
-        stream=is_stream,
-        timeout=timeout,
-    )
+    client = OpenAI(api_key=LLM_API_KEY, base_url=LLM_BASE_URL, timeout=timeout)
+    openai_params = _build_openai_params(payload)
+    return client.chat.completions.create(**openai_params)

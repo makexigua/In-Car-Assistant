@@ -1,10 +1,6 @@
 # 作用：封装 chat skill 调用与流式切帧逻辑，供主链路做闲聊兜底输出。
 
-import copy
-import json
 import re
-import time
-from typing import Any, Callable, Dict, Tuple
 
 from main.skills.runtime import call_skill, is_llm_ready
 from main.utils import logger
@@ -46,12 +42,12 @@ def request_chat(query, sender_id, trace_id="", multiturn=True):
         return "N"
 
 
-def process_chat(response, query, sender_id):
-    if response is None:
+def process_chat(stream, query, sender_id):
+    if stream is None:
         yield "抱歉，此为敏感信息，请您换个问题"
         return
 
-    if response == "N":
+    if stream == "N":
         yield "抱歉，网络有点问题，请您再试一下"
         return
 
@@ -59,20 +55,11 @@ def process_chat(response, query, sender_id):
     chunk_text = ""
     answer = ""
 
-    for row in response.iter_lines(chunk_size=1, decode_unicode=False, delimiter=b"\n"):
-        line = row.decode("utf-8").strip()
-        if not line:
-            continue
-
-        try:
-            payload = json.loads(line.lstrip("data: "))
-        except Exception:
-            continue
-
-        if payload.get("choices", [{}])[0].get("finish_reason", {}) == "stop":
+    for chunk in stream:
+        if chunk.choices[0].finish_reason == "stop":
             break
 
-        text = payload.get("choices", [{}])[0].get("delta", {}).get("content", "")
+        text = chunk.choices[0].delta.content or ""
         if not text:
             continue
 
@@ -95,42 +82,6 @@ def process_chat(response, query, sender_id):
         yield chunk_text
 
     logger.info(f"bot_Chat Result: {answer}")
-
-
-def handle_chat_stream(
-    response_payload: Dict[str, Any],
-    query: str,
-    sender_id: str,
-    trace_id: str,
-    begin: float,
-    send_msg_fn: Callable[[Dict[str, Any], str, str, int, float, int], None],
-) -> Tuple[bool, str]:
-    """
-    闲聊链路统一处理：
-    - 先发开始帧
-    - 再按 chunk 发中间帧
-    - 最后发结束帧
-    """
-    seq = 1
-    response_payload_begin = copy.deepcopy(response_payload)
-    send_msg_fn(response_payload_begin, "CHAT", "", seq, time.time() - begin, status=0)
-
-    full_answer = ""
-    chat_handler = request_chat(query, sender_id, trace_id)
-    for value in process_chat(chat_handler, query, sender_id):
-        response_payload_chat = copy.deepcopy(response_payload)
-        send_msg_fn(response_payload_chat, "CHAT", value, seq, time.time() - begin, status=1)
-        seq += 1
-        full_answer += value
-        logger.info(f"Chat Frame:{seq}, content:{value}")
-
-    if seq > 1:
-        send_msg_fn(response_payload_begin, "CHAT", "", seq, time.time() - begin, status=2)
-        logger.info(f"Chat cost time: {time.time() - begin}")
-        return True, full_answer
-
-    logger.info(f"Chat cost time: {time.time() - begin}")
-    return False, full_answer
 
 
 if __name__ == "__main__":
