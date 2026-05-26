@@ -54,6 +54,11 @@ def rrf_rank(docs_lists: list[list[Document]], k: int = 60) -> list[Document]:
 
 
 def post_processing(response, docs):
+    """
+    解析 LLM 输出，提取引用编号、引用页码和相关图片。
+
+    docs 必须与拼 context 的列表一致（context_docs），否则引用编号错位。
+    """
     all_cites = re.findall("[【](.*?)[】]", response)
     cites = []
     for cite in all_cites:
@@ -64,20 +69,28 @@ def post_processing(response, docs):
     cites = list(set(cites))
     answer = re.sub("[【](.*?)[】]", "", response)
     answer = re.sub("[{}【】]", "", answer)
+    answer = answer.strip()
 
     related_images = []
+    seen_images = set()
     pages = []
     for index in cites:
-        if index > len(docs):
+        if index < 1 or index > len(docs):
             continue
-        images = docs[index - 1].metadata["images_info"]
-        pages.append(docs[index - 1].metadata["page"])
+        doc = docs[index - 1]
+        images = doc.metadata.get("images_info", [])
+        pages.append(doc.metadata.get("page"))
         for image in images:
-            if image["title"]:
+            if not image.get("title"):
+                continue
+            img_key = image.get("image_path", "")
+            if img_key and img_key not in seen_images:
+                seen_images.add(img_key)
                 related_images.append(image)
     pages = sorted(list(set(pages)))
     return {
         "answer": answer,
+        "citations": sorted(cites),
         "cite_pages": pages,
-        "related_images": related_images
+        "related_images": related_images,
     }

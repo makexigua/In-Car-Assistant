@@ -6,7 +6,7 @@ from pathlib import Path
 from kb.online.retrieval.recall.bm25_retriever import BM25
 from kb.online.retrieval.recall.faiss_retriever import FaissRetriever
 from kb.online.retrieval.rerank.reranker import ApiReranker
-from kb.online.retrieval.postprocess import merge_docs, rrf_rank
+from kb.online.retrieval.postprocess import merge_docs, rrf_rank, post_processing
 from kb.online.config.llm_client import request_chat
 from kb.offline.config.settings import RERANK_MODEL
 from kb.offline.config.env_loader import load_project_env
@@ -71,11 +71,20 @@ def process(query: str) -> dict:
     raw_answer = request_chat(query, context, stream=False)
     answer = _normalize_answer(raw_answer)
 
-    return {
+    result = {
         "answer": answer,
         "hit": bool(answer),
-        "docs_count": len(ranked_docs),
+        "docs_count": len(context_docs),
+        "citations": [],
+        "cite_pages": [],
+        "related_images": [],
     }
+    if answer:
+        # 解析 LLM 输出中的引用和图片（传入 context_docs 保证编号对齐）
+        parsed = post_processing(raw_answer, context_docs)
+        result.update(parsed)
+
+    return result
 
 
 def _normalize_answer(answer: Any) -> str:

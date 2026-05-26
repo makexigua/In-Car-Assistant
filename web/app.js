@@ -186,6 +186,10 @@ function handleAgentFrame(payload) {
     // 结束帧
     const text = frame.frame || "";
     updateMessage(activeAssistantMessageId, text, { replace: false, loading: false });
+    // 渲染关联图片
+    if (frame.related_images && frame.related_images.length) {
+      renderImages(activeAssistantMessageId, frame.related_images, frame.cite_pages);
+    }
     addFrameMeta(activeAssistantMessageId, frame);
     releaseComposer();
   } else if (status === -1) {
@@ -201,6 +205,48 @@ function summarizeTaskFrame(frame) {
   const func = frame.function || "";
   const parts = [route, intent, func].filter(Boolean);
   return parts.length ? `[${parts.join("/")}]` : "";
+}
+
+function renderImages(messageId, images, citePages) {
+  const record = messageStore.get(messageId);
+  if (!record) return;
+
+  // 移除旧的图片容器
+  const oldContainer = record.bubble.querySelector(".image-gallery");
+  oldContainer?.remove();
+
+  const container = document.createElement("div");
+  container.className = "image-gallery";
+
+  const header = document.createElement("div");
+  header.className = "image-gallery-header";
+  const pageHint = citePages?.length ? `（第 ${citePages.join("、")} 页）` : "";
+  header.textContent = `相关图片${pageHint}`;
+  container.append(header);
+
+  const grid = document.createElement("div");
+  grid.className = "image-gallery-grid";
+
+  for (const img of images) {
+    const figure = document.createElement("figure");
+    figure.className = "image-item";
+
+    const imgEl = document.createElement("img");
+    imgEl.src = img.url || img.image_path;
+    imgEl.alt = img.title || "";
+    imgEl.loading = "lazy";
+    imgEl.addEventListener("click", () => window.open(img.url, "_blank"));
+
+    const figcaption = document.createElement("figcaption");
+    figcaption.textContent = img.title || "";
+
+    figure.append(imgEl, figcaption);
+    grid.append(figure);
+  }
+
+  container.append(grid);
+  record.bubble.append(container);
+  scrollToBottom();
 }
 
 function releaseComposer() {

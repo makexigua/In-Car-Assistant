@@ -3,10 +3,15 @@ import os
 import time
 import traceback
 import copy
+import base64
 import warnings
 from typing import Any, Dict
+from pathlib import Path
 
-from flask import Flask, Response, request, jsonify, make_response, stream_with_context
+from flask import Flask, Response, request, jsonify, make_response, stream_with_context, send_from_directory
+
+# 抑制第三方库的过期警告（如 jieba 的 pkg_resources）
+warnings.filterwarnings("ignore", category=UserWarning, module="jieba")
 
 # 抑制第三方库的过期警告（如 jieba 的 pkg_resources）
 warnings.filterwarnings("ignore", category=UserWarning, module="jieba")
@@ -29,6 +34,16 @@ app.config["JSON_AS_ASCII"] = False
 load_project_env()
 DEFAULT_NLG = os.getenv("DEFAULT_NLG", "抱歉，这个问题我还在学习中")
 ENABLE_DEBUG_API = os.getenv("ENABLE_DEBUG_API", "false").strip().lower() in ("1", "true", "yes", "y")
+
+# 图片静态目录
+BASE_DIR = Path(__file__).resolve().parent.parent
+IMAGE_DIR = str(BASE_DIR / "kb" / "offline" / "data" / "processed" / "images")
+
+
+# 图片静态路由
+@app.route("/images/<path:filename>")
+def serve_image(filename):
+    return send_from_directory(IMAGE_DIR, filename)
 
 
 INTENT_META = {
@@ -158,6 +173,19 @@ def inference():
                 answer = rag_result.get("answer", "")
                 if answer:
                     rag_payload = _build_template(ori_query, trace_id, begin)
+                    # 图片转 base64 内联到 JSON
+                    related_images = rag_result.get("related_images", [])
+                    for img in related_images:
+                        img_path = img.get("image_path", "")
+                        if img_path and os.path.exists(img_path):
+                            with open(img_path, "rb") as f:
+                                img_data = f.read()
+                            ext = os.path.splitext(img_path)[1].lstrip(".") or "png"
+                            b64 = base64.b64encode(img_data).decode()
+                            img["url"] = f"data:image/{ext};base64,{b64}"
+                    rag_payload["related_images"] = related_images
+                    rag_payload["cite_pages"] = rag_result.get("cite_pages", [])
+                    rag_payload["citations"] = rag_result.get("citations", [])
                     yield _encode_frame(rag_payload, "RAG", answer, 1, time.time() - begin, status=2)
                     complete_answer(sender_id=sender_id, trace_id=trace_id, route="rag",
                                     answer=answer, query_fallback=ori_query)
