@@ -63,15 +63,21 @@ class IndexBuilder:
         self.parent_docs = parent_docs
 
     def build_all(self):
-        """一键构建全部索引。"""
-        self.build_mongodb()
-        self.build_bm25()
+        """一键构建全部索引。
+
+        顺序：FAISS（最易失败）→ BM25 → MongoDB（最稳定）。
+        如果 FAISS 或 BM25 失败，MongoDB 未写入，不会产生脏数据。
+        """
         self.build_faiss()
+        self.build_bm25()
+        self.build_mongodb()
         # self.build_milvus()
 
     def build_mongodb(self, collection_name: str = "manual_text"):
         """将所有文档写入 MongoDB（父子都存，供 FAISS 回查 + merge_docs 替换为父块）。"""
         collection = MongoConfig.get_collection(collection_name)
+        # 清空旧数据，避免脏数据累积
+        collection.delete_many({})
         # 去重合并：子块/小父块用于 FAISS 回查命中，父块用于 merge_docs 替换
         all_docs = self.retrieval_docs + self.parent_docs
         seen = set()

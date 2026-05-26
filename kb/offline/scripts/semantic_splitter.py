@@ -1,6 +1,7 @@
 import os
 import re
 import json
+import tiktoken
 from openai import OpenAI
 
 from kb.offline.config.env_loader import load_project_env
@@ -26,20 +27,21 @@ LLM_SPLIT_PROMPT = """你是一个文档处理助手。请将以下文本按语�
 
 请输出 JSON："""
 
-_MIN_DOC_SIZE = 256
-_MIN_CHUNK_SIZE = 50
+# 与 doc_splitter.py 保持一致的 token 编码
+_encoding = tiktoken.get_encoding("cl100k_base")
+_MIN_DOC_SIZE = 256  # token 数，与 doc_splitter._chunk_size 保持一致
 
 
 def semantic_split(text: str, group_size: int = 10) -> list[str]:
     """语义切分主函数。
 
     策略：
-    1. 短文本直接返回
+    1. 短文本直接返回（按 token 数判断）
     2. 按 ### 标题切分
     3. 按 \n\n 切分
     4. 长文本调用 LLM API 做语义切分
     """
-    if len(text) <= _MIN_DOC_SIZE:
+    if len(_encoding.encode(text)) <= _MIN_DOC_SIZE:
         return [text]
 
     chunks = _split_by_headers(text)
