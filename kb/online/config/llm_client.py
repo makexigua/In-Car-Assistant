@@ -29,9 +29,12 @@ LLM_CHAT_PROMPT = """
 """
 
 
+RAG_LLM_TIMEOUT = float(os.getenv("RAG_LLM_TIMEOUT", "60"))
+
 llm_client = OpenAI(
     api_key=os.getenv("LLM_API_KEY", "").removeprefix("Bearer ").strip(),
     base_url=os.getenv("LLM_BASE_URL", "").rstrip("/"),
+    timeout=RAG_LLM_TIMEOUT,
 )
 
 

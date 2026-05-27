@@ -134,7 +134,13 @@ async function sendQuery() {
 
     while (true) {
       const { done, value } = await reader.read();
-      if (done) break;
+      if (done) {
+        // 流异常结束：没有收到结束/错误帧，释放 composer 避免 UI 卡死
+        if (waitingForReply) {
+          finishAssistantMessage("连接异常中断，请重新发送。", { isError: true });
+        }
+        break;
+      }
 
       buffer += decoder.decode(value, { stream: true });
       const lines = buffer.split("\n");
@@ -192,6 +198,12 @@ function handleAgentFrame(payload) {
     }
     addFrameMeta(activeAssistantMessageId, frame);
     releaseComposer();
+  } else if (status === 3) {
+    // 心跳帧：后端仍在处理中，保持 loading 状态，避免浏览器/代理超时断开
+    const record = messageStore.get(activeAssistantMessageId);
+    if (record) {
+      record.bubble.classList.add("is-loading");
+    }
   } else if (status === -1) {
     // 错误/拒识
     const text = frame.frame || "";
