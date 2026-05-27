@@ -145,6 +145,9 @@ def inference():
         nonlocal query
         template = _build_template(query, trace_id, begin)
 
+        # 立即发开始帧，让前端知道连接正常，避免代理超时断开
+        yield _encode_frame(template, "START", "", 0, 0, status=0)
+
         try:
             ori_query = query
             logger.session.trace_id = trace_id
