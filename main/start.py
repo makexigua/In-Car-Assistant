@@ -35,6 +35,19 @@ load_project_env()
 DEFAULT_NLG = os.getenv("DEFAULT_NLG", "抱歉，这个问题我还在学习中")
 ENABLE_DEBUG_API = os.getenv("ENABLE_DEBUG_API", "false").strip().lower() in ("1", "true", "yes", "y")
 
+# 后台预热 MCP 连接，避免第一个请求等 npx 启动
+import threading as _threading
+from task.execute.mcp_executor import init_mcp as _warmup_mcp
+
+def _mcp_warmup():
+    ok = _warmup_mcp()
+    if ok:
+        logger.info("[启动预热] MCP 初始化成功，工具已就绪")
+    else:
+        logger.warning("[启动预热] MCP 初始化失败（后续请求会重试）")
+
+_threading.Thread(target=_mcp_warmup, daemon=True, name="mcp-warmup").start()
+
 # 图片静态目录
 BASE_DIR = Path(__file__).resolve().parent.parent
 IMAGE_DIR = str(BASE_DIR / "kb" / "offline" / "data" / "processed" / "images")

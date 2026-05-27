@@ -214,7 +214,7 @@ def init_mcp() -> bool:
         return True
 
     except Exception as err:
-        logger.error("[MCP] 初始化失败: %s", err)
+        logger.error("[MCP] 初始化失败: %s (%s)", err, type(err).__name__)
         return False
 
 
