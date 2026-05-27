@@ -51,7 +51,11 @@ def _build_tool_entries() -> List[ToolEntry]:
         description = str(function_meta.get("description", "")).strip()
         if not name:
             continue
+        # 合并召回关键词（仅用于规则匹配，不传给 LLM）
+        recall_kw = tool.get("recall_keywords", "")
         search_text = f"{name} {description}"
+        if recall_kw:
+            search_text += f" {recall_kw}"
         entries.append(
             ToolEntry(
                 tool_schema=tool,
@@ -236,6 +240,9 @@ def recall_top_tools(query: str, top_k: int) -> List[Dict[str, Any]]:
     final_entries = reranked if reranked else rule_candidates[: max(1, top_k)]
 
     selected = [entry.tool_schema for entry in final_entries[: max(1, top_k)]]
+    # 剥离召回专用字段，避免传给 LLM
+    for tool in selected:
+        tool.pop("recall_keywords", None)
     logger.info(
         f"task recall top{top_k}: {[tool.get('function', {}).get('name') for tool in selected]}"
     )

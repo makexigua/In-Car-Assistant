@@ -1686,9 +1686,10 @@ FUNCTION_TOOLS = [
     },
     {
         "type": "function",
+        "recall_keywords": "天气 下雨 下雪 降温 升温 温度 气温 台风 空气质量 冷不冷 热不热 多少度",
         "function": {
             "name": "Query_Weather",
-            "description": "查询指定城市在指定日期的天气信息。日期可为空，空则默认今天。",
+            "description": "查询指定城市在指定日期的天气信息，包括温度、降雨、降雪、台风、空气质量等。支持\"明天上海冷不冷\"\"北京今天多少度\"\"下周会下雨吗\"等问法。日期可为空，空则默认今天。",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -1710,9 +1711,10 @@ FUNCTION_TOOLS = [
     },
     {
         "type": "function",
+        "recall_keywords": "搜索 查找 查找地点 找地方 附近有什么 周边 景点 餐厅 商场 饭店 酒店",
         "function": {
             "name": "Search_POI",
-            "description": "根据关键词搜索地点（POI），可选按城市缩小范围。",
+            "description": "搜索景点、餐厅、商场、医院、加油站、停车场等地点（POI），可选按城市缩小范围。用户可以问\"附近有什么好吃的\"\"帮我找一下停车场\"\"搜索附近的酒店\"等。",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -1734,9 +1736,10 @@ FUNCTION_TOOLS = [
     },
     {
         "type": "function",
+        "recall_keywords": "详情 介绍 开放时间 营业时间 电话 地址 评分 景点介绍 了解 查一下 怎么样",
         "function": {
             "name": "Search_POI_Detail",
-            "description": "查询地点详情。可直接传 POI id；若只有地点名称，系统会先搜索地点再自动查询详情。",
+            "description": "查询某个地点的详细信息、开放时间、联系电话、地址、评分等。用户可以说\"故宫的开放时间\"\"帮我查一下这个餐厅的地址和电话\"\"迪士尼乐园的介绍\"等。",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -1763,9 +1766,10 @@ FUNCTION_TOOLS = [
     },
     {
         "type": "function",
+        "recall_keywords": "公交 地铁 怎么坐车 公共交通 坐公交 坐地铁 公交路线 地铁路线 大巴 火车 怎么去 乘车路线",
         "function": {
             "name": "Route_Transit_Integrated",
-            "description": "根据起终点经纬度查询公交/地铁/火车等综合公共交通路径。",
+            "description": "查询公交、地铁、火车等综合公共交通出行路线规划。用户可以说\"从北京到上海坐什么车\"\"怎么坐地铁去故宫\"\"从浦东机场到外滩公交路线\"等。",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -1797,9 +1801,10 @@ FUNCTION_TOOLS = [
     },
     {
         "type": "function",
+        "recall_keywords": "附近 周边 附近有什么 附近美食 附近停车场 附近酒店 附近加油站 周边服务",
         "function": {
             "name": "Search_Around_POI",
-            "description": "查询某个地点附近的目标地点，例如故宫附近美食、医院、停车场。",
+            "description": "查询某个地点附近的目标地点，例如故宫附近美食、医院、停车场。用户可以说\"迪士尼附近有什么酒店\"\"天安门附近停车场\"等。",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -1831,9 +1836,10 @@ FUNCTION_TOOLS = [
     },
     {
         "type": "function",
+        "recall_keywords": "导航 驾车 开车 路线 怎么走 怎么去 去某地怎么走 路书 自驾 导航到 去 到",
         "function": {
             "name": "Route_Driving",
-            "description": "查询驾车路径。支持输入地址，系统会自动解析为坐标再规划路径。",
+            "description": "查询驾车导航路径。用户可以说\"导航去故宫\"\"去天安门怎么走\"\"从北京到上海开车路线\"\"帮我规划去机场的路线\"等。支持输入地址，系统会自动解析为坐标再规划路径。",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -1872,7 +1878,7 @@ FUNCTION_TOOLS = [
         "type": "function",
         "function": {
             "name": "Unknown",
-            "description": "无意义的，或未指明部件的命令，比如要左边的、关了吧。不包括确认、没错、取消等命令如果输入需要搜索xx，则不命中此函数一切和闲聊，询问歌曲演唱者、百科知识，娱乐知识，生活知识，诗词（含更换），旅游攻略，地理问题，数学运算，单位换算，旅游或音乐的推荐或建议，人物介绍，笑话，翻译等相关的问题。包括去某地N天的旅行、出差等路书设计、路书中某天路线设计修改或途径点变更等。如果仅是规划路线，则同导航去某地，不属于该类。如果输入中有怎么、为什么等词语，必须命中此函数，不能命中其他函数",
+            "description": "无意义的，或未指明部件的命令（如\"打开这个\"\"关了吧\"），或属于闲聊、问候、开玩笑、询问歌曲演唱者、百科知识、娱乐知识、生活知识、诗词、数学运算、单位换算、音乐推荐、人物介绍、笑话、翻译等。注意：导航、路线规划、查天气、搜地点、查景点详情等有明确地点的查询不属于此类。",
             "parameters": {
                 "type": "object",
                 "properties": {}
