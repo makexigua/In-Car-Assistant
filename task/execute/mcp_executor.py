@@ -1,15 +1,16 @@
 """
-MCP 执行器 — 纯代理模式。
+MCP 执行器 — 智能代理模式。
 
-工业界标准做法：
-  1. list_tools 返回的工具定义直通 FUNCTION_TOOLS（不改名，不改参数）
-  2. LLM 选工具 → call_tool 直通 MCP Server（无中间业务逻辑）
+核心改进：
+  1. list_tools 返回的工具定义经过增强（更好的中文描述 + recall_keywords）
+  2. LLM 选工具 → 智能参数预处理（如地名→坐标） → call_tool
   3. 熔断 + 指数退避重试 + 健康检查 → 稳定性保障
   4. 惰性初始化 → 无模块级副作用
 """
 
 import asyncio
 import json
+import re
 import threading
 import time
 from typing import Any, Dict, Optional
@@ -27,6 +28,67 @@ from task.settings import (
     MCP_CIRCUIT_BREAKER_THRESHOLD,
     MCP_RECOVERY_TIMEOUT,
 )
+
+# ================================================================
+# MCP 工具描述增强 — 解决规则召回阶段 MCP 工具与用户口语零匹配的问题
+# ================================================================
+
+MCP_TOOL_ENHANCEMENTS: Dict[str, Dict[str, str]] = {
+    "maps_direction_driving": {
+        "description": (
+            "驾车导航或路线规划。根据用户输入的起点和终点规划驾车路线。"
+            "目的地和起点支持城市名（如"上海"）、景点名（如"东方明珠"）、"
+            "具体地址（如"北京市朝阳区"）。"
+            "当用户说导航、开车、驾车、怎么去、路线、前往、到某地时使用此工具。"
+        ),
+        "recall_keywords": "导航 开车 驾车 路线 怎么去 到 前往 去 目的地 路线规划 到达 行驶 路程 导航去 开车去",
+    },
+    "maps_weather": {
+        "description": "查询指定城市的天气信息，包括温度、天气状况（晴/雨/雪/阴）、风力等。支持城市名查询。",
+        "recall_keywords": "天气 温度 下雨 下雪 晴天 阴天 刮风 降温 升温 天气预报 气温 雨 雪 风 雾霾 湿度",
+    },
+    "maps_text_search": {
+        "description": "关键词搜索地点/POI信息。用户可以说"找餐厅""搜索酒店""查景点"等。支持模糊搜索。",
+        "recall_keywords": "搜索 查找 找 哪里有 推荐 景点 餐厅 酒店 商场 美食 医院 加油站 停车场 厕所 银行",
+    },
+    "maps_search_detail": {
+        "description": "查询某个地点的详细信息，包括电话、地址、营业时间、评分、评价等。需要知道POI ID。",
+        "recall_keywords": "详情 详细信息 电话 地址 营业时间 评价 评分 介绍 怎么样",
+    },
+    "maps_around_search": {
+        "description": "周边搜索。根据当前位置和关键词搜索附近一定范围内的POI（餐厅、加油站、停车场等）。",
+        "recall_keywords": "附近 周围 周边 就近 旁边的 最近 靠近",
+    },
+    "maps_geo": {
+        "description": "地理编码。将详细的结构化地址或地标名称转换为经纬度坐标。支持名胜景区、建筑物名称解析。",
+        "recall_keywords": "坐标 经纬度 地址转换 地理位置 地址解析 转坐标 在哪里",
+    },
+    "maps_regeocode": {
+        "description": "逆地理编码。将经纬度坐标转换为具体的行政区划地址信息。",
+        "recall_keywords": "逆地理 坐标转地址 经纬度转地址 这个位置在哪",
+    },
+    "maps_bicycling": {
+        "description": "骑行路线规划。规划骑行通勤方案，会考虑天桥、单行线、封路等情况。",
+        "recall_keywords": "骑行 自行车 骑车 单车 骑行路线",
+    },
+    "maps_direction_walking": {
+        "description": "步行路线规划。规划100km以内的步行路线方案。",
+        "recall_keywords": "步行 走路 徒步 步行路线 走过去",
+    },
+    "maps_direction_transit_integrated": {
+        "description": "公交/地铁路线规划。规划综合公共交通（公交、地铁）的通勤方案。",
+        "recall_keywords": "公交 地铁 怎么坐车 公共交通 乘车路线 坐公交 坐地铁 公交路线",
+    },
+    "maps_ip_location": {
+        "description": "IP定位。根据用户IP地址定位所在位置。",
+        "recall_keywords": "IP定位 我的位置 当前位置 我在哪 定位",
+    },
+    "maps_distance": {
+        "description": "距离测量。测量两个经纬度坐标之间的距离，支持驾车、步行、球面距离。",
+        "recall_keywords": "距离 多远 多远距离 测量距离 相距",
+    },
+}
+
 
 # ================================================================
 # 异步桥接 — 专用线程 + 事件循环
@@ -138,6 +200,7 @@ class CircuitBreaker:
 _mcp_client: Optional[MCPClient] = None
 _initialized = False
 _mcp_function_names: set[str] = set()
+_known_mcp_tool_schemas: dict[str, dict] = {}
 _circuit_breaker = CircuitBreaker(
     threshold=MCP_CIRCUIT_BREAKER_THRESHOLD,
     recovery_timeout=MCP_RECOVERY_TIMEOUT,
@@ -145,23 +208,130 @@ _circuit_breaker = CircuitBreaker(
 
 
 # ================================================================
-# MCP 工具 → OpenAI 格式（直通，不改名）
+# MCP 工具 → OpenAI 格式（增强）
 # ================================================================
 
 
 def _mcp_tool_to_openai(mcp_tool: Any) -> Dict[str, Any]:
     """MCP Tool → OpenAI function calling 格式。
 
-    保持原始 name / description / inputSchema，不做任何映射。
+    在直通基础上叠加中文描述增强和召回关键词，提高规则召回阶段的命中率。
     """
-    return {
+    name = mcp_tool.name
+    raw_description = mcp_tool.description or ""
+    enhancement = MCP_TOOL_ENHANCEMENTS.get(name, {})
+
+    # 用增强描述替换原始的 API 风格描述
+    final_description = raw_description
+    if enhancement.get("description"):
+        final_description = enhancement["description"]
+
+    recall_keywords = enhancement.get("recall_keywords", "")
+
+    tool_dict: Dict[str, Any] = {
         "type": "function",
         "function": {
-            "name": mcp_tool.name,
-            "description": mcp_tool.description or "",
+            "name": name,
+            "description": final_description,
             "parameters": mcp_tool.inputSchema,
         },
     }
+    if recall_keywords:
+        tool_dict["recall_keywords"] = recall_keywords
+    return tool_dict
+
+
+# ================================================================
+# 智能参数预处理 — 地名 → 坐标解析
+# ================================================================
+
+# 需要将地名解析为坐标的工具及其参数映射
+_GEO_RESOLVE_MAP: Dict[str, list[str]] = {
+    "maps_direction_driving": ["destination", "origin"],
+    "maps_bicycling": ["destination", "origin"],
+    "maps_direction_walking": ["destination", "origin"],
+    "maps_direction_transit_integrated": ["destination", "origin"],
+    "maps_distance": ["destination", "origin"],
+}
+
+
+def _is_coordinate(value: str) -> bool:
+    """判断字符串是否为"经度,纬度"格式的坐标。"""
+    value = (value or "").strip()
+    # 匹配 数字,数字 格式的坐标
+    return bool(re.match(r"^-?\d+\.?\d*,\s*-?\d+\.?\d*$", value))
+
+
+def _needs_geo_resolve(value: Any) -> bool:
+    """判断一个参数值是否需要通过地理编码解析（不是坐标格式的字符串即需要解析）。"""
+    if not isinstance(value, str):
+        return False
+    value = value.strip()
+    if not value:
+        return False
+    return not _is_coordinate(value)
+
+
+async def _resolve_place_to_coords(
+    client: MCPClient,
+    place_name: str,
+) -> Optional[str]:
+    """通过 maps_geo 将地名解析为"经度,纬度"字符串。"""
+    if not place_name:
+        return None
+    try:
+        raw = await client.call_tool(
+            "maps_geo",
+            {"address": place_name},
+            timeout=MCP_CALL_TIMEOUT,
+        )
+        text = client.extract_text(raw)
+        result = json.loads(text) if isinstance(text, str) else text
+        if isinstance(result, list) and len(result) > 0:
+            location = result[0].get("location", "")
+            if location:
+                logger.info("[MCP] 地理编码: %s → %s", place_name, location)
+                return location
+        logger.warning("[MCP] 地理编码 %s 无结果: %s", place_name, text)
+        return None
+    except Exception as e:
+        logger.warning("[MCP] 地理编码失败 %s: %s", place_name, e)
+        return None
+
+
+def _lists_known_mcp_schemas() -> dict[str, dict]:
+    """返回已注册 MCP 工具的原始 schema 映射（来自 list_tools 的原始定义）。"""
+    return _known_mcp_tool_schemas
+
+
+async def _resolve_tool_arguments(
+    function_name: str,
+    arguments: Dict[str, Any],
+    client: MCPClient,
+) -> Dict[str, Any]:
+    """智能解析工具参数：将地名转为坐标，补充合理默认值。
+
+    当前支持的解析：
+    - maps_direction_driving 等导航类工具：destination/origin 中地名 → maps_geo 解析为坐标
+    - 未指定 origin 时不补充（由 MCP 服务端处理，它默认用当前定位）
+    """
+    resolved = dict(arguments)
+
+    # 只对已知需要地理解析的工具进行处理
+    geo_params = _GEO_RESOLVE_MAP.get(function_name)
+    if not geo_params:
+        return resolved
+
+    for param in geo_params:
+        raw_value = resolved.get(param)
+        if raw_value is None or raw_value == "":
+            continue
+        if _needs_geo_resolve(raw_value):
+            coords = await _resolve_place_to_coords(client, str(raw_value))
+            if coords:
+                resolved[param] = coords
+
+    return resolved
 
 
 # ================================================================
@@ -174,7 +344,7 @@ def init_mcp() -> bool:
 
     幂等，多次调用只执行一次。
     """
-    global _mcp_client, _initialized, _mcp_function_names
+    global _mcp_client, _initialized, _mcp_function_names, _known_mcp_tool_schemas
 
     if _initialized:
         return True
@@ -200,7 +370,10 @@ def init_mcp() -> bool:
         )
         _mcp_client = client
 
-        # 直通：list_tools 返回什么就注册什么
+        # 保存原始 schema 供内部使用（如地理编码）
+        _known_mcp_tool_schemas = {t.name: t.inputSchema for t in discovered_tools}
+
+        # 增强后注册：叠加中文描述 + recall_keywords
         openai_tools = [_mcp_tool_to_openai(t) for t in discovered_tools]
         register_mcp_tools(openai_tools)
         _mcp_function_names = {t.name for t in discovered_tools}
@@ -232,7 +405,7 @@ def get_mcp_metrics() -> Dict[str, Any]:
 
 
 # ================================================================
-# 异步重试执行（纯代理）
+# 异步重试执行（带智能参数预处理）
 # ================================================================
 
 
@@ -241,10 +414,13 @@ async def _call_with_retry_async(
     client: MCPClient,
     arguments: Dict[str, Any],
 ) -> Optional[Dict[str, Any]]:
-    """带指数退避重试的 call_tool 纯转发。"""
+    """带指数退避重试的 call_tool。在调用前先做智能参数预处理。"""
     command = AMAP_MCP_COMMAND
     args = AMAP_MCP_ARGS or []
     env = {"AMAP_MAPS_API_KEY": AMAP_MAPS_API_KEY} if AMAP_MAPS_API_KEY else {}
+
+    # 智能参数预处理：地名 → 坐标、补充默认值等
+    resolved_args = await _resolve_tool_arguments(function_name, arguments, client)
 
     for attempt in range(MCP_RETRY_MAX + 1):
         try:
@@ -254,8 +430,8 @@ async def _call_with_retry_async(
                     logger.warning("[MCP] 健康检查失败，尝试重连 (attempt %d)", attempt + 1)
                     await client.reconnect(command, args, env, timeout=MCP_CONNECT_TIMEOUT)
 
-            # --- 纯转发：不做任何业务逻辑 ---
-            raw = await client.call_tool(function_name, arguments, timeout=MCP_CALL_TIMEOUT)
+            # --- 智能转发：参数已经过预处理 ---
+            raw = await client.call_tool(function_name, resolved_args, timeout=MCP_CALL_TIMEOUT)
             text = client.extract_text(raw)
             result = _try_parse_json(text)
 
@@ -303,9 +479,9 @@ def execute_mcp_function(
     function_name: str,
     slots: Dict[str, Any],
 ) -> Optional[Dict[str, Any]]:
-    """执行 MCP 工具（纯代理）。
+    """执行 MCP 工具（带智能参数预处理）。
 
-    熔断检查 → 惰性初始化 → 指数退避重试 → call_tool → 原样返回。
+    熔断检查 → 惰性初始化 → 参数智能解析 → 指数退避重试 → call_tool。
     """
     # 1. 熔断检查
     if not _circuit_breaker.allow_request():
@@ -317,9 +493,9 @@ def execute_mcp_function(
         if not init_mcp():
             return {"tool": {"error": "MCP 未初始化"}}
 
-    # 3. 纯代理执行
+    # 3. 智能执行（参数预处理 + 重试）
     bridge = _get_bridge()
     return bridge.run(
         _call_with_retry_async(function_name, _mcp_client, slots),
-        timeout=(MCP_CALL_TIMEOUT + 1.0) * (MCP_RETRY_MAX + 1),
+        timeout=(MCP_CALL_TIMEOUT + 1.0) * (MCP_RETRY_MAX + 1) + 10.0,
     )
