@@ -5,15 +5,15 @@ from typing import Any, Dict, Optional
 
 from main.utils import logger
 from task.execute.local_executor import build_local_action
-from task.execute.mcp_executor import execute_mcp_function, is_mcp_function
+from task.execute.mcp_executor import execute_mcp_function, init_mcp, is_mcp_function
 from task.execute.nlg import generate_nlg
 from task.intent.recall import recall_top_tools
 from task.intent.recognize import build_task_result, recognize_intent_and_slots
 from task.llm_client import is_llm_ready
 from task.settings import DEFAULT_NLG, RECALL_TOP_K
 
-# MCP 采用惰性初始化：首次 execute_mcp_function 调用时自动连接
-# 如需预热，可在应用启动后显式调用 init_mcp()
+# MCP 在每次 run_task_pipeline 入口处提前初始化（init_mcp），
+# 确保 maps_weather 等工具在意图召回前已注册到 FUNCTION_TOOLS。
 
 def _build_fallback_result(query: str, trace_id: str, begin: float) -> Dict[str, Any]:
     return {
@@ -48,6 +48,9 @@ def run_task_pipeline(query: str, trace_id: str, enable_dm: bool = True) -> Dict
         return _build_fallback_result(query, trace_id, begin)
 
     try:
+        # 先初始化 MCP，将 maps_weather 等工具注册到 FUNCTION_TOOLS
+        init_mcp()
+
         candidate_tools = recall_top_tools(query, RECALL_TOP_K)
         function_name, slots = recognize_intent_and_slots(query, candidate_tools)
         result = build_task_result(function_name, slots, query, trace_id)

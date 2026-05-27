@@ -68,7 +68,9 @@ def _build_tool_entries() -> List[ToolEntry]:
     return entries
 
 
-ALL_TOOL_ENTRIES = _build_tool_entries()
+def _get_tool_entries() -> List[ToolEntry]:
+    """每次调用时从 FUNCTION_TOOLS 实时构建，确保 MCP 动态注册的工具被包含。"""
+    return _build_tool_entries()
 
 
 def _score_tool(query: str, query_tokens: Set[str], entry: ToolEntry) -> float:
@@ -87,8 +89,9 @@ def _build_rule_candidates(query_text: str, top_k: int) -> List[ToolEntry]:
     if not query_tokens:
         return []
 
+    entries = _get_tool_entries()
     scored: List[Tuple[float, ToolEntry]] = []
-    for entry in ALL_TOOL_ENTRIES:
+    for entry in entries:
         scored.append((_score_tool(query_text, query_tokens, entry), entry))
     scored.sort(key=lambda item: item[0], reverse=True)
 
