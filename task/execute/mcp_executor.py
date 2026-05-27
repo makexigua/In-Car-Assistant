@@ -2,7 +2,8 @@
 MCP 执行器 — 智能代理模式。
 
 核心改进：
-  1. list_tools 返回的工具定义经过增强（更好的中文描述 + recall_keywords）
+  1. list_tools 返回的工具定义保留原始 name/description/parameters，
+     额外叠加项目级 recall_keywords（仅用于规则召回，不影响 LLM）
   2. LLM 选工具 → 智能参数预处理（如地名→坐标） → call_tool
   3. 熔断 + 指数退避重试 + 健康检查 → 稳定性保障
   4. 惰性初始化 → 无模块级副作用
@@ -31,62 +32,22 @@ from task.settings import (
 
 # ================================================================
 # MCP 工具描述增强 — 解决规则召回阶段 MCP 工具与用户口语零匹配的问题
+# 注：只叠加 recall_keywords，不覆盖 MCP server 原始 description
 # ================================================================
 
-MCP_TOOL_ENHANCEMENTS: Dict[str, Dict[str, str]] = {
-    "maps_direction_driving": {
-        "description": (
-            "驾车导航或路线规划。根据用户输入的起点和终点规划驾车路线。"
-            "目的地和起点支持城市名（如"上海"）、景点名（如"东方明珠"）、"
-            "具体地址（如"北京市朝阳区"）。"
-            "当用户说导航、开车、驾车、怎么去、路线、前往、到某地时使用此工具。"
-        ),
-        "recall_keywords": "导航 开车 驾车 路线 怎么去 到 前往 去 目的地 路线规划 到达 行驶 路程 导航去 开车去",
-    },
-    "maps_weather": {
-        "description": "查询指定城市的天气信息，包括温度、天气状况（晴/雨/雪/阴）、风力等。支持城市名查询。",
-        "recall_keywords": "天气 温度 下雨 下雪 晴天 阴天 刮风 降温 升温 天气预报 气温 雨 雪 风 雾霾 湿度",
-    },
-    "maps_text_search": {
-        "description": "关键词搜索地点/POI信息。用户可以说"找餐厅""搜索酒店""查景点"等。支持模糊搜索。",
-        "recall_keywords": "搜索 查找 找 哪里有 推荐 景点 餐厅 酒店 商场 美食 医院 加油站 停车场 厕所 银行",
-    },
-    "maps_search_detail": {
-        "description": "查询某个地点的详细信息，包括电话、地址、营业时间、评分、评价等。需要知道POI ID。",
-        "recall_keywords": "详情 详细信息 电话 地址 营业时间 评价 评分 介绍 怎么样",
-    },
-    "maps_around_search": {
-        "description": "周边搜索。根据当前位置和关键词搜索附近一定范围内的POI（餐厅、加油站、停车场等）。",
-        "recall_keywords": "附近 周围 周边 就近 旁边的 最近 靠近",
-    },
-    "maps_geo": {
-        "description": "地理编码。将详细的结构化地址或地标名称转换为经纬度坐标。支持名胜景区、建筑物名称解析。",
-        "recall_keywords": "坐标 经纬度 地址转换 地理位置 地址解析 转坐标 在哪里",
-    },
-    "maps_regeocode": {
-        "description": "逆地理编码。将经纬度坐标转换为具体的行政区划地址信息。",
-        "recall_keywords": "逆地理 坐标转地址 经纬度转地址 这个位置在哪",
-    },
-    "maps_bicycling": {
-        "description": "骑行路线规划。规划骑行通勤方案，会考虑天桥、单行线、封路等情况。",
-        "recall_keywords": "骑行 自行车 骑车 单车 骑行路线",
-    },
-    "maps_direction_walking": {
-        "description": "步行路线规划。规划100km以内的步行路线方案。",
-        "recall_keywords": "步行 走路 徒步 步行路线 走过去",
-    },
-    "maps_direction_transit_integrated": {
-        "description": "公交/地铁路线规划。规划综合公共交通（公交、地铁）的通勤方案。",
-        "recall_keywords": "公交 地铁 怎么坐车 公共交通 乘车路线 坐公交 坐地铁 公交路线",
-    },
-    "maps_ip_location": {
-        "description": "IP定位。根据用户IP地址定位所在位置。",
-        "recall_keywords": "IP定位 我的位置 当前位置 我在哪 定位",
-    },
-    "maps_distance": {
-        "description": "距离测量。测量两个经纬度坐标之间的距离，支持驾车、步行、球面距离。",
-        "recall_keywords": "距离 多远 多远距离 测量距离 相距",
-    },
+MCP_TOOL_KEYWORDS: Dict[str, str] = {
+    "maps_direction_driving": "导航 开车 驾车 路线 怎么去 到 前往 去 目的地 路线规划 到达 行驶 路程 导航去 开车去",
+    "maps_weather": "天气 温度 下雨 下雪 晴天 阴天 刮风 降温 升温 天气预报 气温 雨 雪 风 雾霾 湿度",
+    "maps_text_search": "搜索 查找 找 哪里有 推荐 景点 餐厅 酒店 商场 美食 医院 加油站 停车场 厕所 银行",
+    "maps_search_detail": "详情 详细信息 电话 地址 营业时间 评价 评分 介绍 怎么样",
+    "maps_around_search": "附近 周围 周边 就近 旁边的 最近 靠近",
+    "maps_geo": "坐标 经纬度 地址转换 地理位置 地址解析 转坐标 在哪里",
+    "maps_regeocode": "逆地理 坐标转地址 经纬度转地址 这个位置在哪",
+    "maps_bicycling": "骑行 自行车 骑车 单车 骑行路线",
+    "maps_direction_walking": "步行 走路 徒步 步行路线 走过去",
+    "maps_direction_transit_integrated": "公交 地铁 怎么坐车 公共交通 乘车路线 坐公交 坐地铁 公交路线",
+    "maps_ip_location": "IP定位 我的位置 当前位置 我在哪 定位",
+    "maps_distance": "距离 多远 多远距离 测量距离 相距",
 }
 
 
@@ -215,24 +176,18 @@ _circuit_breaker = CircuitBreaker(
 def _mcp_tool_to_openai(mcp_tool: Any) -> Dict[str, Any]:
     """MCP Tool → OpenAI function calling 格式。
 
-    在直通基础上叠加中文描述增强和召回关键词，提高规则召回阶段的命中率。
+    保留 MCP server 原始的 name / description / parameters，
+    额外叠加项目级的 recall_keywords 以提升规则召回阶段的命中率。
     """
     name = mcp_tool.name
-    raw_description = mcp_tool.description or ""
-    enhancement = MCP_TOOL_ENHANCEMENTS.get(name, {})
-
-    # 用增强描述替换原始的 API 风格描述
-    final_description = raw_description
-    if enhancement.get("description"):
-        final_description = enhancement["description"]
-
-    recall_keywords = enhancement.get("recall_keywords", "")
+    description = mcp_tool.description or ""
+    recall_keywords = MCP_TOOL_KEYWORDS.get(name, "")
 
     tool_dict: Dict[str, Any] = {
         "type": "function",
         "function": {
             "name": name,
-            "description": final_description,
+            "description": description,
             "parameters": mcp_tool.inputSchema,
         },
     }

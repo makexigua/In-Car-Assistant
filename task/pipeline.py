@@ -1,9 +1,10 @@
 # 作用：串联 task 主流程：意图召回 -> 意图识别/槽位抽取 -> 本地或 MCP 执行 -> NLG。
 
 import time
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from main.utils import logger
+from task.execute.function_registry import FUNCTION_TOOLS
 from task.execute.local_executor import build_local_action
 from task.execute.mcp_executor import execute_mcp_function, init_mcp, is_mcp_function
 from task.execute.nlg import generate_nlg
@@ -40,7 +41,20 @@ def _dispatch_execution(function_name: str, slots: Dict[str, Any], enable_mcp: b
     return {"executor": "local", "tool": local_action}
 
 
-def run_task_pipeline(query: str, trace_id: str, enable_dm: bool = True) -> Dict[str, Any]:
+def run_task_pipeline(
+    query: str,
+    trace_id: str,
+    enable_dm: bool = True,
+    function_scope: str = "all",
+) -> Dict[str, Any]:
+    """执行任务链路。
+
+    Args:
+        function_scope: 限定召回范围。可选值:
+            - "all": 召回所有函数（默认，兜底）
+            - "local_only": 只召回本地车控函数
+            - "mcp_only": 只召回 MCP 在线服务函数
+    """
     begin = time.time()
 
     if not is_llm_ready():
@@ -51,7 +65,21 @@ def run_task_pipeline(query: str, trace_id: str, enable_dm: bool = True) -> Dict
         # 先初始化 MCP，将 maps_weather 等工具注册到 FUNCTION_TOOLS
         init_mcp()
 
-        candidate_tools = recall_top_tools(query, RECALL_TOP_K)
+        # 根据 function_scope 过滤函数池，减少召回干扰
+        if function_scope == "local_only":
+            filtered_tools: List[Dict[str, Any]] = [
+                t for t in FUNCTION_TOOLS
+                if not is_mcp_function(t.get("function", {}).get("name", ""))
+            ]
+        elif function_scope == "mcp_only":
+            filtered_tools = [
+                t for t in FUNCTION_TOOLS
+                if is_mcp_function(t.get("function", {}).get("name", ""))
+            ]
+        else:
+            filtered_tools = FUNCTION_TOOLS
+
+        candidate_tools = recall_top_tools(query, RECALL_TOP_K, tools_override=filtered_tools)
         function_name, slots = recognize_intent_and_slots(query, candidate_tools)
         result = build_task_result(function_name, slots, query, trace_id)
 

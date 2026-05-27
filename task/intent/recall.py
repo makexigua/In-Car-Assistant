@@ -7,6 +7,7 @@ from difflib import SequenceMatcher
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 from main.utils import logger
+
 from task.execute.function_registry import FUNCTION_TOOLS
 from task.llm_client import call_llm_json, is_llm_ready
 from task.settings import FUNCTION_CALL_MODEL
@@ -43,9 +44,10 @@ def _tokenize(text: str) -> Set[str]:
     return tokens
 
 
-def _build_tool_entries() -> List[ToolEntry]:
+def _build_tool_entries(tools_override: Optional[List[Dict[str, Any]]] = None) -> List[ToolEntry]:
+    tool_source = tools_override if tools_override is not None else FUNCTION_TOOLS
     entries: List[ToolEntry] = []
-    for tool in FUNCTION_TOOLS:
+    for tool in tool_source:
         function_meta = tool.get("function", {})
         name = str(function_meta.get("name", "")).strip()
         description = str(function_meta.get("description", "")).strip()
@@ -68,9 +70,9 @@ def _build_tool_entries() -> List[ToolEntry]:
     return entries
 
 
-def _get_tool_entries() -> List[ToolEntry]:
-    """每次调用时从 FUNCTION_TOOLS 实时构建，确保 MCP 动态注册的工具被包含。"""
-    return _build_tool_entries()
+def _get_tool_entries(tools_override: Optional[List[Dict[str, Any]]] = None) -> List[ToolEntry]:
+    """每次调用时从工具源实时构建，确保 MCP 动态注册的工具被包含。"""
+    return _build_tool_entries(tools_override)
 
 
 def _score_tool(query: str, query_tokens: Set[str], entry: ToolEntry) -> float:
@@ -84,12 +86,16 @@ def _score_tool(query: str, query_tokens: Set[str], entry: ToolEntry) -> float:
     return 0.55 * coverage + 0.25 * jaccard + 0.20 * string_ratio
 
 
-def _build_rule_candidates(query_text: str, top_k: int) -> List[ToolEntry]:
+def _build_rule_candidates(
+    query_text: str,
+    top_k: int,
+    tools_override: Optional[List[Dict[str, Any]]] = None,
+) -> List[ToolEntry]:
     query_tokens = _tokenize(query_text)
     if not query_tokens:
         return []
 
-    entries = _get_tool_entries()
+    entries = _get_tool_entries(tools_override)
     scored: List[Tuple[float, ToolEntry]] = []
     for entry in entries:
         scored.append((_score_tool(query_text, query_tokens, entry), entry))
@@ -230,12 +236,21 @@ def _llm_rerank(query: str, candidates: List[ToolEntry], top_k: int) -> Optional
     return result
 
 
-def recall_top_tools(query: str, top_k: int) -> List[Dict[str, Any]]:
+def recall_top_tools(
+    query: str,
+    top_k: int,
+    tools_override: Optional[List[Dict[str, Any]]] = None,
+) -> List[Dict[str, Any]]:
+    """从工具池中召回最相关的 top-k 个工具。
+
+    Args:
+        tools_override: 可选，限定召回范围。为 None 时使用全局 FUNCTION_TOOLS。
+    """
     query_text = (query or "").strip().lower()
     if not query_text:
         return []
 
-    rule_candidates = _build_rule_candidates(query_text, top_k)
+    rule_candidates = _build_rule_candidates(query_text, top_k, tools_override)
     if not rule_candidates:
         return []
 

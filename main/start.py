@@ -206,29 +206,22 @@ def inference():
                 lambda: request_rewrite(ori_query, sender_id, trace_id), template, begin
             )
 
-            # 4) 仲裁（用心跳保护）
-            arbitration_result = yield from _with_heartbeat(
+            # 4) 仲裁（用心跳保护），返回 (route, function_scope)
+            arbitration_result, function_scope = yield from _with_heartbeat(
                 lambda: request_arbitration(query, sender_id, trace_id), template, begin
             )
-            logger.info(f"TraceID:{trace_id}, query:{query}, arbitration result: {arbitration_result}")
+            logger.info(f"TraceID:{trace_id}, query:{query}, route:{arbitration_result}, scope:{function_scope}")
 
             # 5) 任务链路（可能耗时较长，用心跳包装防止连接断开）
             if arbitration_result == "task":
                 response_payload = yield from _with_heartbeat(
-                    lambda: request_task(query, trace_id, enable_dm),
+                    lambda: request_task(query, trace_id, enable_dm, function_scope=function_scope),
                     template, begin
                 )
                 nlg_content = response_payload.get("nlg", "")
                 has_function = response_payload.get("function", "Unknown") not in ["Unknown", ""]
-                if nlg_content:
-                    # NLG 有输出时直接使用，不依赖 function 字段
-                    answer = nlg_content
-                    complete_answer(sender_id=sender_id, trace_id=trace_id, route="task",
-                                    answer=answer, query_fallback=ori_query)
-                    yield _encode_frame(response_payload, "TASK", answer, 1, time.time() - begin, status=2)
-                elif has_function:
-                    # 有 function 但无 NLG，回退到默认回答
-                    answer = DEFAULT_NLG
+                if nlg_content or has_function:
+                    answer = nlg_content or DEFAULT_NLG
                     complete_answer(sender_id=sender_id, trace_id=trace_id, route="task",
                                     answer=answer, query_fallback=ori_query)
                     yield _encode_frame(response_payload, "TASK", answer, 1, time.time() - begin, status=2)
