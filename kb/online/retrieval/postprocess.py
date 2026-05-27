@@ -79,8 +79,9 @@ def post_processing(response, docs):
         cite = [int(k) for k in cite.split("，") if k.isdigit()]
         cites.extend(cite)
     cites = sorted(set(cites))
-    answer = re.sub("[【](.*?)[】]", "", response)
-    answer = re.sub("[{}【】]", "", answer)
+    # 保留 【page】 标记在答案中，仅清理 "参考来源" 类说明文字
+    answer = re.sub(r"[（(]参考来源[^）)]*[）)]", "", response)
+    answer = re.sub(r"\[参考来源[^\]]*\]", "", answer)
     answer = answer.strip()
 
     related_images = []

@@ -93,7 +93,7 @@ def process(query: str) -> dict:
     context_docs = merge_docs(ranked_docs, [])
     logger.info("[RAG][生成] 子块→父块替换后: %d 条, 拼入 context", len(context_docs))
     context = "\n".join([
-        f"【{idx + 1}】(第{doc.metadata.get('page', '?')}页){doc.page_content}"
+        f"【{doc.metadata.get('page', '?')}】{doc.page_content}"
         for idx, doc in enumerate(context_docs)
     ])
     raw_answer = request_chat(query, context, stream=False)
