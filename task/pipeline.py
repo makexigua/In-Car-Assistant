@@ -60,6 +60,10 @@ def run_task_pipeline(query: str, trace_id: str, enable_dm: bool = True) -> Dict
         nlg_text = generate_nlg(query, function_name, slots, tool_response)
         result["nlg"] = nlg_text or DEFAULT_NLG
         result["cost"] = time.time() - begin
+        if nlg_text:
+            logger.info(f"nlg generated successfully, func={function_name}, nlg={nlg_text[:80]}")
+        else:
+            logger.warning(f"nlg returned empty, func={function_name}, use default")
         return result
 
     except Exception as err:

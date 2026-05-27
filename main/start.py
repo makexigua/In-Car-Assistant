@@ -157,8 +157,17 @@ def inference():
             # 5) 任务链路
             if arbitration_result == "task":
                 response_payload = request_task(query, trace_id, enable_dm)
-                if response_payload.get("function", "Unknown") not in ["Unknown", ""]:
-                    answer = response_payload.get("nlg", "") or DEFAULT_NLG
+                nlg_content = response_payload.get("nlg", "")
+                has_function = response_payload.get("function", "Unknown") not in ["Unknown", ""]
+                if nlg_content:
+                    # NLG 有输出时直接使用，不依赖 function 字段
+                    answer = nlg_content
+                    complete_answer(sender_id=sender_id, trace_id=trace_id, route="task",
+                                    answer=answer, query_fallback=ori_query)
+                    yield _encode_frame(response_payload, "TASK", answer, 1, time.time() - begin, status=2)
+                elif has_function:
+                    # 有 function 但无 NLG，回退到默认回答
+                    answer = DEFAULT_NLG
                     complete_answer(sender_id=sender_id, trace_id=trace_id, route="task",
                                     answer=answer, query_fallback=ori_query)
                     yield _encode_frame(response_payload, "TASK", answer, 1, time.time() - begin, status=2)

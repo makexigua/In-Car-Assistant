@@ -1,23 +1,35 @@
+import time
+
 import redis
 
- 
+from main.utils import logger
+
+
 class RedisDBConfig:
     HOST = '127.0.0.1'
     PORT = 6379
     DBID = 0
- 
+
 def operator_status(func):
-    '''get operatoration status
+    '''get operatoration status, with call logging
     '''
     def gen_status(*args, **kwargs):
         error, result = None, None
+        # args[0]=self, args[1]=key
+        key = args[1] if len(args) > 1 else "unknown"
+        begin = time.time()
         try:
             result = func(*args, **kwargs)
         except Exception as e:
             error = str(e)
- 
-        return result 
- 
+
+        elapsed = time.time() - begin
+        if error:
+            logger.error(f"redis {func.__name__} failed, key={key}, error={error}, cost={elapsed:.3f}s")
+        else:
+            logger.info(f"redis {func.__name__} success, key={key}, cost={elapsed:.3f}s")
+        return result
+
     return gen_status
  
 class RedisClient(object):

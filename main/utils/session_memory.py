@@ -70,13 +70,14 @@ def _read_turns(sender_id: str) -> List[Dict[str, Any]]:
     key = SESSION_KEY.format(sender_id)
     raw = _redis_client.get(key)
     if not raw:
+        logger.info(f"redis session get empty, sender_id={sender_id}, key={key}")
         return []
 
     now_ts = _now_ts()
     try:
         payload = json.loads(raw)
     except Exception:
-        logger.error(f"session memory json decode failed, key={key}")
+        logger.error(f"redis session json decode failed, sender_id={sender_id}, key={key}")
         return []
 
     turns_raw = payload.get("turns", [])
@@ -99,6 +100,7 @@ def _read_turns(sender_id: str) -> List[Dict[str, Any]]:
     if need_flush or len(turns_raw) > len(turns):
         _write_turns(sender_id, turns)
 
+    logger.info(f"redis session read_turns done, sender_id={sender_id}, turns_count={len(turns)}")
     return turns
 
 
@@ -111,10 +113,12 @@ def _write_turns(sender_id: str, turns: List[Dict[str, Any]]) -> None:
     key = SESSION_KEY.format(sender_id)
     if not turns:
         _redis_client.delete(key)
+        logger.info(f"redis session delete key (empty turns), sender_id={sender_id}, key={key}")
         return
 
     payload = {"turns": turns[-MAX_TURNS:]}
     _redis_client.set(key, json.dumps(payload, ensure_ascii=False), ex=TURN_EXPIRE_SECONDS)
+    logger.info(f"redis session write_turns done, sender_id={sender_id}, turns_count={len(turns)}")
 
 
 def add_user_query(sender_id: str, query: str, trace_id: str) -> None:
@@ -138,6 +142,7 @@ def add_user_query(sender_id: str, query: str, trace_id: str) -> None:
         }
     )
     _write_turns(sender_id, turns)
+    logger.info(f"redis session add_user_query done, sender_id={sender_id}, trace_id={trace_id}, query={query[:50]}")
 
 
 def complete_answer(
@@ -185,6 +190,7 @@ def complete_answer(
         if turn is not None:
             valid_turns.append(turn)
     _write_turns(sender_id, valid_turns)
+    logger.info(f"redis session complete_answer done, sender_id={sender_id}, trace_id={trace_id}, route={route}, answer={str(answer)[:50]}")
 
 
 def get_completed_turns(
