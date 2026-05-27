@@ -8,7 +8,6 @@ def build_local_action(function_name: str, slots: Dict[str, Any]) -> Optional[Di
         return None
 
     return {
-        "executor": "local",
         "type": "local_function",
         "function": function_name,
         "arguments": slots,

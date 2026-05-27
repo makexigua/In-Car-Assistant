@@ -30,11 +30,11 @@ def _dispatch_execution(function_name: str, slots: Dict[str, Any], enable_mcp: b
     if enable_mcp and is_mcp_function(function_name):
         mcp_result = execute_mcp_function(function_name, slots)
         if mcp_result is not None:
-            return mcp_result
+            return {"executor": "mcp", **mcp_result}
 
     local_action = build_local_action(function_name, slots)
     if local_action is None:
-        return {"executor": "none", "tool": None}
+        return {"executor": "local", "tool": None}
     return {"executor": "local", "tool": local_action}
 
 
@@ -51,7 +51,7 @@ def run_task_pipeline(query: str, trace_id: str, enable_dm: bool = True) -> Dict
         result = build_task_result(function_name, slots, query, trace_id)
 
         execution = _dispatch_execution(function_name, slots, enable_dm)
-        result["executor"] = execution.get("executor", "none")
+        result["executor"] = execution.get("executor", "local")
 
         tool_response: Optional[Any] = execution.get("tool")
         if tool_response is not None:

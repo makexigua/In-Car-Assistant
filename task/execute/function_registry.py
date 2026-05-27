@@ -1791,10 +1791,7 @@ FUNCTION_TOOLS = [
                     }
                 },
                 "required": [
-                    "origin",
-                    "destination",
-                    "city",
-                    "cityd"
+                    "destination"
                 ]
             }
         }
@@ -1865,11 +1862,7 @@ FUNCTION_TOOLS = [
                     }
                 },
                 "required": [
-                    "origin",
-                    "destination",
-                    "city",
-                    "cityd",
-                    "strategy"
+                    "destination"
                 ]
             }
         }

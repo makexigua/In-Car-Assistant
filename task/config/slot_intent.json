@@ -238,35 +238,35 @@
     "View_Not_Call": "无",
     "Unknown": "无",
     "Query_Weather": {
-        "city": "城市",
-        "date": "日期"
+        "city": "city",
+        "date": "date"
     },
     "Search_POI": {
-        "keywords": "关键词",
-        "city": "城市"
+        "keywords": "keywords",
+        "city": "city"
     },
     "Search_POI_Detail": {
-        "id": "POI_ID",
-        "keywords": "关键词",
-        "city": "城市"
+        "id": "id",
+        "keywords": "keywords",
+        "city": "city"
     },
     "Route_Transit_Integrated": {
-        "origin": "起点坐标",
-        "destination": "终点坐标",
-        "city": "起点城市",
-        "cityd": "终点城市"
+        "origin": "origin",
+        "destination": "destination",
+        "city": "city",
+        "cityd": "cityd"
     },
     "Search_Around_POI": {
-        "center": "中心地点",
-        "keywords": "关键词",
-        "city": "城市",
-        "radius": "范围"
+        "center": "center",
+        "keywords": "keywords",
+        "city": "city",
+        "radius": "radius"
     },
     "Route_Driving": {
-        "origin": "起点",
-        "destination": "终点",
-        "city": "起点城市",
-        "cityd": "终点城市",
-        "strategy": "路线偏好"
+        "origin": "origin",
+        "destination": "destination",
+        "city": "city",
+        "cityd": "cityd",
+        "strategy": "strategy"
     }
 }

@@ -166,7 +166,7 @@ def execute_mcp_function(function_name: str, slots: Dict[str, Any]) -> Optional[
                 tool_args={"city": city, "date": date},
             )
         )
-        return {"executor": "mcp", "tool": tool_response}
+        return {"tool": tool_response}
 
     if function_name == "Search_POI":
         keyword = str(slots.get("keywords", "")).strip()
@@ -193,7 +193,7 @@ def execute_mcp_function(function_name: str, slots: Dict[str, Any]) -> Optional[
                 tool_args=tool_args,
             )
         )
-        return {"executor": "mcp", "tool": tool_response}
+        return {"tool": tool_response}
 
     if function_name == "Search_Around_POI":
         center_keyword = str(slots.get("center", "")).strip()
@@ -202,11 +202,11 @@ def execute_mcp_function(function_name: str, slots: Dict[str, Any]) -> Optional[
         radius = str(slots.get("radius", "")).strip() or "2000"
 
         if not center_keyword:
-            return {"executor": "mcp", "tool": {"error": "缺少中心地点（center），无法查询附近地点"}}
+            return {"tool": {"error": "缺少中心地点（center），无法查询附近地点"}}
 
         location = _resolve_address_to_location(center_keyword, city, amap_env)
         if not location:
-            return {"executor": "mcp", "tool": {"error": "中心地点解析失败，无法查询附近地点"}}
+            return {"tool": {"error": "中心地点解析失败，无法查询附近地点"}}
 
         tool_args: Dict[str, Any] = {
             "keywords": around_keyword,
@@ -225,7 +225,7 @@ def execute_mcp_function(function_name: str, slots: Dict[str, Any]) -> Optional[
                 tool_args=tool_args,
             )
         )
-        return {"executor": "mcp", "tool": tool_response}
+        return {"tool": tool_response}
 
     if function_name == "Search_POI_Detail":
         poi_id = str(slots.get("id", "")).strip()
@@ -249,7 +249,7 @@ def execute_mcp_function(function_name: str, slots: Dict[str, Any]) -> Optional[
                 )
                 poi_id = _extract_poi_id_from_text_search_result(search_result)
         if not poi_id:
-            return {"executor": "mcp", "tool": {"error": "缺少可识别的地点信息（id 或关键词），无法查询详情"}}
+            return {"tool": {"error": "缺少可识别的地点信息（id 或关键词），无法查询详情"}}
 
         tool_response = _run_async(
             _call_mcp_tool_by_spec(
@@ -260,7 +260,7 @@ def execute_mcp_function(function_name: str, slots: Dict[str, Any]) -> Optional[
                 tool_args={"id": poi_id},
             )
         )
-        return {"executor": "mcp", "tool": tool_response}
+        return {"tool": tool_response}
 
     if function_name == "Route_Driving":
         origin = str(slots.get("origin", "")).strip()
@@ -269,18 +269,25 @@ def execute_mcp_function(function_name: str, slots: Dict[str, Any]) -> Optional[
         cityd = str(slots.get("cityd", "")).strip()
         strategy = str(slots.get("strategy", "")).strip()
 
-        if not origin or not destination:
-            return {"executor": "mcp", "tool": {"error": "缺少起点或终点，无法规划驾车路径"}}
+        if not destination:
+            return {"tool": {"error": "缺少终点，无法规划驾车路径"}}
 
-        origin_loc = origin if "," in origin else _resolve_address_to_location(origin, city, amap_env)
+        if origin:
+            origin_loc = origin if "," in origin else _resolve_address_to_location(origin, city, amap_env)
+            if not origin_loc:
+                return {"tool": {"error": "起点地址解析失败，无法规划驾车路径"}}
+        else:
+            origin_loc = ""
+
         destination_loc = (
             destination if "," in destination else _resolve_address_to_location(destination, cityd or city, amap_env)
         )
+        if not destination_loc:
+            return {"tool": {"error": "终点地址解析失败，无法规划驾车路径"}}
 
-        if not origin_loc or not destination_loc:
-            return {"executor": "mcp", "tool": {"error": "起点或终点地址解析失败，无法规划驾车路径"}}
-
-        tool_args: Dict[str, Any] = {"origin": origin_loc, "destination": destination_loc}
+        tool_args: Dict[str, Any] = {"destination": destination_loc}
+        if origin_loc:
+            tool_args["origin"] = origin_loc
         if strategy:
             tool_args["strategy"] = strategy
 
@@ -293,7 +300,7 @@ def execute_mcp_function(function_name: str, slots: Dict[str, Any]) -> Optional[
                 tool_args=tool_args,
             )
         )
-        return {"executor": "mcp", "tool": tool_response}
+        return {"tool": tool_response}
 
     if function_name == "Route_Transit_Integrated":
         origin = str(slots.get("origin", "")).strip()
@@ -301,10 +308,12 @@ def execute_mcp_function(function_name: str, slots: Dict[str, Any]) -> Optional[
         city = str(slots.get("city", "")).strip()
         cityd = str(slots.get("cityd", "")).strip()
 
-        if not origin or not destination:
-            return {"executor": "mcp", "tool": {"error": "缺少起点或终点坐标，无法规划公交路径"}}
+        if not destination:
+            return {"tool": {"error": "缺少终点，无法规划公交路径"}}
 
-        tool_args: Dict[str, Any] = {"origin": origin, "destination": destination}
+        tool_args: Dict[str, Any] = {"destination": destination}
+        if origin:
+            tool_args["origin"] = origin
         if city:
             tool_args["city"] = city
         if cityd:
@@ -319,6 +328,6 @@ def execute_mcp_function(function_name: str, slots: Dict[str, Any]) -> Optional[
                 tool_args=tool_args,
             )
         )
-        return {"executor": "mcp", "tool": tool_response}
+        return {"tool": tool_response}
 
     return None
