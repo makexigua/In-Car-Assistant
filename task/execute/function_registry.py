@@ -1686,189 +1686,6 @@ FUNCTION_TOOLS = [
     },
     {
         "type": "function",
-        "recall_keywords": "天气 下雨 下雪 降温 升温 温度 气温 台风 空气质量 冷不冷 热不热 多少度",
-        "function": {
-            "name": "Query_Weather",
-            "description": "查询指定城市在指定日期的天气信息，包括温度、降雨、降雪、台风、空气质量等。支持\"明天上海冷不冷\"\"北京今天多少度\"\"下周会下雨吗\"等问法。日期可为空，空则默认今天。",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "city": {
-                        "type": "string",
-                        "description": "城市名，如北京、上海。若无可为空，默认北京。"
-                    },
-                    "date": {
-                        "type": "string",
-                        "description": "日期或自然语言日期，如2026-05-21、明天。可为空。"
-                    }
-                },
-                "required": [
-                    "city",
-                    "date"
-                ]
-            }
-        }
-    },
-    {
-        "type": "function",
-        "recall_keywords": "搜索 查找 查找地点 找地方 附近有什么 周边 景点 餐厅 商场 饭店 酒店",
-        "function": {
-            "name": "Search_POI",
-            "description": "搜索景点、餐厅、商场、医院、加油站、停车场等地点（POI），可选按城市缩小范围。用户可以问\"附近有什么好吃的\"\"帮我找一下停车场\"\"搜索附近的酒店\"等。",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "keywords": {
-                        "type": "string",
-                        "description": "地点关键词，如虹桥火车站、人民广场。"
-                    },
-                    "city": {
-                        "type": "string",
-                        "description": "可选，城市名。"
-                    }
-                },
-                "required": [
-                    "keywords",
-                    "city"
-                ]
-            }
-        }
-    },
-    {
-        "type": "function",
-        "recall_keywords": "详情 介绍 开放时间 营业时间 电话 地址 评分 景点介绍 了解 查一下 怎么样",
-        "function": {
-            "name": "Search_POI_Detail",
-            "description": "查询某个地点的详细信息、开放时间、联系电话、地址、评分等。用户可以说\"故宫的开放时间\"\"帮我查一下这个餐厅的地址和电话\"\"迪士尼乐园的介绍\"等。",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "id": {
-                        "type": "string",
-                        "description": "POI 唯一 id，可为空。"
-                    },
-                    "keywords": {
-                        "type": "string",
-                        "description": "地点关键词，如故宫、外滩。可为空。"
-                    },
-                    "city": {
-                        "type": "string",
-                        "description": "可选，城市名。"
-                    }
-                },
-                "required": [
-                    "id",
-                    "keywords",
-                    "city"
-                ]
-            }
-        }
-    },
-    {
-        "type": "function",
-        "recall_keywords": "公交 地铁 怎么坐车 公共交通 坐公交 坐地铁 公交路线 地铁路线 大巴 火车 怎么去 乘车路线",
-        "function": {
-            "name": "Route_Transit_Integrated",
-            "description": "查询公交、地铁、火车等综合公共交通出行路线规划。用户可以说\"从北京到上海坐什么车\"\"怎么坐地铁去故宫\"\"从浦东机场到外滩公交路线\"等。",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "origin": {
-                        "type": "string",
-                        "description": "起点经纬度，格式: lng,lat"
-                    },
-                    "destination": {
-                        "type": "string",
-                        "description": "终点经纬度，格式: lng,lat"
-                    },
-                    "city": {
-                        "type": "string",
-                        "description": "可选，起点城市。跨城建议填写。"
-                    },
-                    "cityd": {
-                        "type": "string",
-                        "description": "可选，终点城市。跨城建议填写。"
-                    }
-                },
-                "required": [
-                    "destination"
-                ]
-            }
-        }
-    },
-    {
-        "type": "function",
-        "recall_keywords": "附近 周边 附近有什么 附近美食 附近停车场 附近酒店 附近加油站 周边服务",
-        "function": {
-            "name": "Search_Around_POI",
-            "description": "查询某个地点附近的目标地点，例如故宫附近美食、医院、停车场。用户可以说\"迪士尼附近有什么酒店\"\"天安门附近停车场\"等。",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "center": {
-                        "type": "string",
-                        "description": "中心地点名称，如故宫、虹桥火车站。"
-                    },
-                    "keywords": {
-                        "type": "string",
-                        "description": "附近要找的类型，如美食、咖啡、停车场。"
-                    },
-                    "city": {
-                        "type": "string",
-                        "description": "可选，城市名。"
-                    },
-                    "radius": {
-                        "type": "string",
-                        "description": "可选，搜索半径（米），默认2000。"
-                    }
-                },
-                "required": [
-                    "center",
-                    "keywords",
-                    "city",
-                    "radius"
-                ]
-            }
-        }
-    },
-    {
-        "type": "function",
-        "recall_keywords": "导航 驾车 开车 路线 怎么走 怎么去 去某地怎么走 路书 自驾 导航到 去 到",
-        "function": {
-            "name": "Route_Driving",
-            "description": "查询驾车导航路径。用户可以说\"导航去故宫\"\"去天安门怎么走\"\"从北京到上海开车路线\"\"帮我规划去机场的路线\"等。支持输入地址，系统会自动解析为坐标再规划路径。",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "origin": {
-                        "type": "string",
-                        "description": "起点地址或经纬度。"
-                    },
-                    "destination": {
-                        "type": "string",
-                        "description": "终点地址或经纬度。"
-                    },
-                    "city": {
-                        "type": "string",
-                        "description": "可选，起点城市。"
-                    },
-                    "cityd": {
-                        "type": "string",
-                        "description": "可选，终点城市。"
-                    },
-                    "strategy": {
-                        "type": "string",
-                        "description": "可选，路径偏好策略。"
-                    }
-                },
-                "required": [
-                    "destination"
-                ]
-            }
-        }
-    },
-    {
-        "type": "function",
         "function": {
             "name": "Unknown",
             "description": "无意义的，或未指明部件的命令（如\"打开这个\"\"关了吧\"），或属于闲聊、问候、开玩笑、询问歌曲演唱者、百科知识、娱乐知识、生活知识、诗词、数学运算、单位换算、音乐推荐、人物介绍、笑话、翻译等。注意：导航、路线规划、查天气、搜地点、查景点详情等有明确地点的查询不属于此类。",
@@ -1879,3 +1696,18 @@ FUNCTION_TOOLS = [
         }
     }
 ]
+
+
+def register_mcp_tools(tools: list[dict]) -> None:
+    """向 FUNCTION_TOOLS 中追加 MCP 工具定义（由 mcp_executor.init_mcp 调用）。"""
+    for tool in tools:
+        name = tool.get("function", {}).get("name", "")
+        # 同名替换，避免重复注册
+        replaced = False
+        for i, existing in enumerate(FUNCTION_TOOLS):
+            if existing.get("function", {}).get("name") == name:
+                FUNCTION_TOOLS[i] = tool
+                replaced = True
+                break
+        if not replaced:
+            FUNCTION_TOOLS.append(tool)

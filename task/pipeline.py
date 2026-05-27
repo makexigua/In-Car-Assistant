@@ -12,6 +12,8 @@ from task.intent.recognize import build_task_result, recognize_intent_and_slots
 from task.llm_client import is_llm_ready
 from task.settings import DEFAULT_NLG, RECALL_TOP_K
 
+# MCP 采用惰性初始化：首次 execute_mcp_function 调用时自动连接
+# 如需预热，可在应用启动后显式调用 init_mcp()
 
 def _build_fallback_result(query: str, trace_id: str, begin: float) -> Dict[str, Any]:
     return {

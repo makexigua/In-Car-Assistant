@@ -1,44 +1,288 @@
-# 作用：执行地图与天气等远端 MCP Server 能力（天气/POI搜索/POI详情/附近搜索/公交路径/驾车路径）。
+"""
+MCP 执行器 — 纯代理模式。
+
+工业界标准做法：
+  1. list_tools 返回的工具定义直通 FUNCTION_TOOLS（不改名，不改参数）
+  2. LLM 选工具 → call_tool 直通 MCP Server（无中间业务逻辑）
+  3. 熔断 + 指数退避重试 + 健康检查 → 稳定性保障
+  4. 惰性初始化 → 无模块级副作用
+"""
 
 import asyncio
 import json
-from datetime import datetime
+import threading
+import time
 from typing import Any, Dict, Optional
 
-from sinan import Sinan
-
 from main.utils import logger
+from task.execute.function_registry import register_mcp_tools
 from task.execute.mcp_client import MCPClient
 from task.settings import (
-    AMAP_MCP_AROUND_TOOL,
-    AMAP_MAPS_API_KEY,
     AMAP_MCP_ARGS,
     AMAP_MCP_COMMAND,
-    AMAP_MCP_DRIVING_TOOL,
-    AMAP_MCP_POI_TOOL,
-    AMAP_MCP_SEARCH_DETAIL_TOOL,
-    AMAP_MCP_TRANSIT_TOOL,
-    AMAP_MCP_WEATHER_TOOL,
+    AMAP_MAPS_API_KEY,
+    MCP_CONNECT_TIMEOUT,
+    MCP_CALL_TIMEOUT,
+    MCP_RETRY_MAX,
+    MCP_CIRCUIT_BREAKER_THRESHOLD,
+    MCP_RECOVERY_TIMEOUT,
+)
+
+# ================================================================
+# 异步桥接 — 专用线程 + 事件循环
+# ================================================================
+
+
+class _AsyncBridge:
+    """专用 daemon 线程持有独立事件循环，用于 sync → async 桥接。"""
+
+    def __init__(self):
+        self._loop = asyncio.new_event_loop()
+        self._thread = threading.Thread(
+            target=self._loop.run_forever,
+            daemon=True,
+            name="mcp-async-bridge",
+        )
+        self._thread.start()
+
+    def run(self, coro, timeout: Optional[float] = None) -> Any:
+        fut = asyncio.run_coroutine_threadsafe(coro, self._loop)
+        return fut.result(timeout=timeout)
+
+
+_bridge: Optional[_AsyncBridge] = None
+
+
+def _get_bridge() -> _AsyncBridge:
+    global _bridge
+    if _bridge is None:
+        _bridge = _AsyncBridge()
+    return _bridge
+
+
+# ================================================================
+# 熔断器
+# ================================================================
+
+
+class _CircuitState:
+    CLOSED = "CLOSED"
+    OPEN = "OPEN"
+    HALF_OPEN = "HALF_OPEN"
+
+
+class CircuitBreaker:
+    """熔断器 — 连续失败超过阈值后快速拒绝请求。"""
+
+    def __init__(self, threshold: int = 3, recovery_timeout: float = 30.0):
+        self.threshold = threshold
+        self.recovery_timeout = recovery_timeout
+        self._state = _CircuitState.CLOSED
+        self._failure_count = 0
+        self._last_failure_time = 0.0
+        self._lock = threading.Lock()
+        self.total_calls = 0
+        self.failed_calls = 0
+
+    @property
+    def state(self) -> str:
+        return self._state
+
+    def allow_request(self) -> bool:
+        with self._lock:
+            if self._state == _CircuitState.CLOSED:
+                return True
+            if self._state == _CircuitState.OPEN:
+                if time.monotonic() - self._last_failure_time >= self.recovery_timeout:
+                    self._state = _CircuitState.HALF_OPEN
+                    logger.info("[MCP] 熔断器 HALF_OPEN，允许探测请求")
+                    return True
+                return False
+            return True
+
+    def record_success(self):
+        with self._lock:
+            self._failure_count = 0
+            self._state = _CircuitState.CLOSED
+            self.total_calls += 1
+
+    def record_failure(self):
+        with self._lock:
+            self._failure_count += 1
+            self._last_failure_time = time.monotonic()
+            self.total_calls += 1
+            self.failed_calls += 1
+            if self._failure_count >= self.threshold:
+                self._state = _CircuitState.OPEN
+                logger.warning(
+                    "[MCP] 熔断器 OPEN（连续 %d 次失败，共失败 %d/%d 次）",
+                    self.threshold,
+                    self.failed_calls,
+                    self.total_calls,
+                )
+
+    def metrics(self) -> Dict[str, Any]:
+        with self._lock:
+            return {
+                "state": self._state,
+                "total_calls": self.total_calls,
+                "failed_calls": self.failed_calls,
+                "failure_rate": round(self.failed_calls / max(self.total_calls, 1), 4),
+            }
+
+
+# ================================================================
+# 全局状态
+# ================================================================
+
+_mcp_client: Optional[MCPClient] = None
+_initialized = False
+_mcp_function_names: set[str] = set()
+_circuit_breaker = CircuitBreaker(
+    threshold=MCP_CIRCUIT_BREAKER_THRESHOLD,
+    recovery_timeout=MCP_RECOVERY_TIMEOUT,
 )
 
 
-MCP_FUNCTIONS = {
-    "Query_Weather",
-    "Search_POI",
-    "Search_Around_POI",
-    "Search_POI_Detail",
-    "Route_Transit_Integrated",
-    "Route_Driving",
-}
+# ================================================================
+# MCP 工具 → OpenAI 格式（直通，不改名）
+# ================================================================
+
+
+def _mcp_tool_to_openai(mcp_tool: Any) -> Dict[str, Any]:
+    """MCP Tool → OpenAI function calling 格式。
+
+    保持原始 name / description / inputSchema，不做任何映射。
+    """
+    return {
+        "type": "function",
+        "function": {
+            "name": mcp_tool.name,
+            "description": mcp_tool.description or "",
+            "parameters": mcp_tool.inputSchema,
+        },
+    }
+
+
+# ================================================================
+# 公开 API
+# ================================================================
+
+
+def init_mcp() -> bool:
+    """初始化：连接 MCP Server → list_tools → 注册到 FUNCTION_TOOLS。
+
+    幂等，多次调用只执行一次。
+    """
+    global _mcp_client, _initialized, _mcp_function_names
+
+    if _initialized:
+        return True
+
+    command = AMAP_MCP_COMMAND
+    if not command:
+        logger.warning("[MCP] AMAP_MCP_COMMAND 为空，跳过初始化")
+        return False
+
+    try:
+        client = MCPClient()
+        bridge = _get_bridge()
+        env = {"AMAP_MAPS_API_KEY": AMAP_MAPS_API_KEY} if AMAP_MAPS_API_KEY else {}
+
+        discovered_tools = bridge.run(
+            client.connect(
+                command=command,
+                args=AMAP_MCP_ARGS or [],
+                env=env,
+                timeout=MCP_CONNECT_TIMEOUT,
+            ),
+            timeout=MCP_CONNECT_TIMEOUT + 5.0,
+        )
+        _mcp_client = client
+
+        # 直通：list_tools 返回什么就注册什么
+        openai_tools = [_mcp_tool_to_openai(t) for t in discovered_tools]
+        register_mcp_tools(openai_tools)
+        _mcp_function_names = {t.name for t in discovered_tools}
+
+        _initialized = True
+        logger.info(
+            "[MCP] 初始化完成，注册 %d 个工具: %s",
+            len(openai_tools),
+            sorted(_mcp_function_names),
+        )
+        return True
+
+    except Exception as err:
+        logger.error("[MCP] 初始化失败: %s", err)
+        return False
 
 
 def is_mcp_function(function_name: str) -> bool:
-    return function_name in MCP_FUNCTIONS
+    return function_name in _mcp_function_names
 
 
-def _safe_json_loads(text: Any) -> Any:
-    if isinstance(text, (dict, list)):
-        return text
+def get_mcp_metrics() -> Dict[str, Any]:
+    return {
+        "initialized": _initialized,
+        "connected": _mcp_client.is_connected if _mcp_client else False,
+        "circuit_breaker": _circuit_breaker.metrics(),
+        "registered_tools": sorted(_mcp_function_names),
+    }
+
+
+# ================================================================
+# 异步重试执行（纯代理）
+# ================================================================
+
+
+async def _call_with_retry_async(
+    function_name: str,
+    client: MCPClient,
+    arguments: Dict[str, Any],
+) -> Optional[Dict[str, Any]]:
+    """带指数退避重试的 call_tool 纯转发。"""
+    command = AMAP_MCP_COMMAND
+    args = AMAP_MCP_ARGS or []
+    env = {"AMAP_MAPS_API_KEY": AMAP_MAPS_API_KEY} if AMAP_MAPS_API_KEY else {}
+
+    for attempt in range(MCP_RETRY_MAX + 1):
+        try:
+            if attempt > 0:
+                healthy = await client.health_check()
+                if not healthy:
+                    logger.warning("[MCP] 健康检查失败，尝试重连 (attempt %d)", attempt + 1)
+                    await client.reconnect(command, args, env, timeout=MCP_CONNECT_TIMEOUT)
+
+            # --- 纯转发：不做任何业务逻辑 ---
+            raw = await client.call_tool(function_name, arguments, timeout=MCP_CALL_TIMEOUT)
+            text = client.extract_text(raw)
+            result = _try_parse_json(text)
+
+            _circuit_breaker.record_success()
+            return {"tool": result}
+
+        except Exception as err:
+            logger.error(
+                "[MCP] 调用 %s 失败 (attempt %d/%d): %s",
+                function_name,
+                attempt + 1,
+                MCP_RETRY_MAX + 1,
+                err,
+            )
+            if attempt < MCP_RETRY_MAX:
+                await asyncio.sleep(1.0 * (2**attempt))
+
+    _circuit_breaker.record_failure()
+    return {
+        "tool": {
+            "error": f"MCP 调用失败: {function_name}（已重试 {MCP_RETRY_MAX} 次）",
+        }
+    }
+
+
+def _try_parse_json(text: str) -> Any:
+    """尝试 JSON 解析，失败返回原字符串。"""
     if not isinstance(text, str):
         return text
     raw = text.strip()
@@ -50,284 +294,32 @@ def _safe_json_loads(text: Any) -> Any:
         return raw
 
 
-async def _call_mcp_tool_by_spec(
-    command: Optional[str],
-    args: Optional[list],
-    env: Optional[Dict[str, str]],
+# ================================================================
+# 同步执行入口
+# ================================================================
+
+
+def execute_mcp_function(
     function_name: str,
-    tool_args: Dict[str, Any],
-) -> Any:
+    slots: Dict[str, Any],
+) -> Optional[Dict[str, Any]]:
+    """执行 MCP 工具（纯代理）。
+
+    熔断检查 → 惰性初始化 → 指数退避重试 → call_tool → 原样返回。
     """
-    统一 MCP 调用入口（仅远端命令式）。
-    未配置 command 直接抛错，避免误以为还在走本地 server。
-    """
-    if not command:
-        raise ValueError("AMAP_MCP_COMMAND 为空，无法连接远端 MCP Server")
+    # 1. 熔断检查
+    if not _circuit_breaker.allow_request():
+        logger.warning("[MCP] 熔断器 OPEN，快速拒绝 %s", function_name)
+        return {"tool": {"error": "MCP 服务暂不可用（熔断中）"}}
 
-    client = MCPClient()
-    try:
-        await client.connect_to_server(command=command, args=args or [], env=env or {})
-        response_text = await client.execute(function_name, tool_args)
-        return _safe_json_loads(response_text)
-    finally:
-        await client.cleanup()
+    # 2. 惰性初始化
+    if not _initialized or _mcp_client is None:
+        if not init_mcp():
+            return {"tool": {"error": "MCP 未初始化"}}
 
-
-def _run_async(coro: Any) -> Any:
-    try:
-        return asyncio.run(coro)
-    except RuntimeError as err:
-        if "asyncio.run() cannot be called from a running event loop" not in str(err):
-            raise
-        loop = asyncio.new_event_loop()
-        try:
-            return loop.run_until_complete(coro)
-        finally:
-            loop.close()
-
-
-def _extract_location_from_text_search_result(raw_result: Any) -> str:
-    """
-    从 maps_text_search 返回里提取第一个 POI 的经纬度 location。
-    兼容常见字段结构，提取失败返回空串。
-    """
-    if not isinstance(raw_result, dict):
-        return ""
-    pois = raw_result.get("pois")
-    if not isinstance(pois, list) or not pois:
-        return ""
-    first = pois[0]
-    if not isinstance(first, dict):
-        return ""
-    location = str(first.get("location", "")).strip()
-    return location
-
-
-def _extract_poi_id_from_text_search_result(raw_result: Any) -> str:
-    """从 maps_text_search 返回里提取第一个 POI 的 id。"""
-    if not isinstance(raw_result, dict):
-        return ""
-    pois = raw_result.get("pois")
-    if not isinstance(pois, list) or not pois:
-        return ""
-    first = pois[0]
-    if not isinstance(first, dict):
-        return ""
-    poi_id = str(first.get("id", "")).strip()
-    return poi_id
-
-
-def _resolve_address_to_location(address: str, city: str, amap_env: Dict[str, str]) -> str:
-    """
-    把自然语言地址解析成经纬度字符串（lng,lat）。
-    方案：复用 maps_text_search 找首个候选 POI。
-    """
-    keyword = (address or "").strip()
-    if not keyword:
-        return ""
-    tool_args: Dict[str, Any] = {"keywords": keyword}
-    if city:
-        tool_args["city"] = city
-
-    search_result = _run_async(
-        _call_mcp_tool_by_spec(
-            command=AMAP_MCP_COMMAND or None,
-            args=AMAP_MCP_ARGS,
-            env=amap_env,
-            function_name=AMAP_MCP_POI_TOOL,
-            tool_args=tool_args,
-        )
+    # 3. 纯代理执行
+    bridge = _get_bridge()
+    return bridge.run(
+        _call_with_retry_async(function_name, _mcp_client, slots),
+        timeout=(MCP_CALL_TIMEOUT + 1.0) * (MCP_RETRY_MAX + 1),
     )
-    return _extract_location_from_text_search_result(search_result)
-
-
-def execute_mcp_function(function_name: str, slots: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-    amap_env = {"AMAP_MAPS_API_KEY": AMAP_MAPS_API_KEY} if AMAP_MAPS_API_KEY else {}
-
-    if function_name == "Query_Weather":
-        city = str(slots.get("city", "北京") or "北京")
-        date = str(slots.get("date", "")).strip()
-        if date:
-            try:
-                date_parsed = Sinan(date).parse()
-                if "datetime" in date_parsed:
-                    date = date_parsed["datetime"][0].split(" ")[0]
-            except Exception as err:
-                logger.error(f"weather date parse failed: {err}")
-        if not date:
-            date = datetime.now().strftime("%Y-%m-%d")
-
-        tool_response = _run_async(
-            _call_mcp_tool_by_spec(
-                command=AMAP_MCP_COMMAND or None,
-                args=AMAP_MCP_ARGS,
-                env=amap_env,
-                function_name=AMAP_MCP_WEATHER_TOOL,
-                tool_args={"city": city, "date": date},
-            )
-        )
-        return {"tool": tool_response}
-
-    if function_name == "Search_POI":
-        keyword = str(slots.get("keywords", "")).strip()
-        if not keyword:
-            # 兼容旧槽位写法，避免 prompt 轻微漂移导致无法命中。
-            keyword_parts = []
-            for key in ("city", "landmark", "POI"):
-                value = str(slots.get(key, "")).strip()
-                if value:
-                    keyword_parts.append(value)
-            keyword = "".join(keyword_parts).strip() or "附近"
-
-        tool_args: Dict[str, Any] = {"keywords": keyword}
-        city_value = str(slots.get("city", "")).strip()
-        if city_value:
-            tool_args["city"] = city_value
-
-        tool_response = _run_async(
-            _call_mcp_tool_by_spec(
-                command=AMAP_MCP_COMMAND or None,
-                args=AMAP_MCP_ARGS,
-                env=amap_env,
-                function_name=AMAP_MCP_POI_TOOL,
-                tool_args=tool_args,
-            )
-        )
-        return {"tool": tool_response}
-
-    if function_name == "Search_Around_POI":
-        center_keyword = str(slots.get("center", "")).strip()
-        around_keyword = str(slots.get("keywords", "")).strip() or "美食"
-        city = str(slots.get("city", "")).strip()
-        radius = str(slots.get("radius", "")).strip() or "2000"
-
-        if not center_keyword:
-            return {"tool": {"error": "缺少中心地点（center），无法查询附近地点"}}
-
-        location = _resolve_address_to_location(center_keyword, city, amap_env)
-        if not location:
-            return {"tool": {"error": "中心地点解析失败，无法查询附近地点"}}
-
-        tool_args: Dict[str, Any] = {
-            "keywords": around_keyword,
-            "location": location,
-            "radius": radius,
-        }
-        if city:
-            tool_args["city"] = city
-
-        tool_response = _run_async(
-            _call_mcp_tool_by_spec(
-                command=AMAP_MCP_COMMAND or None,
-                args=AMAP_MCP_ARGS,
-                env=amap_env,
-                function_name=AMAP_MCP_AROUND_TOOL,
-                tool_args=tool_args,
-            )
-        )
-        return {"tool": tool_response}
-
-    if function_name == "Search_POI_Detail":
-        poi_id = str(slots.get("id", "")).strip()
-        if not poi_id:
-            poi_id = str(slots.get("poi_id", "")).strip()
-        if not poi_id:
-            keyword = str(slots.get("keywords", "")).strip() or str(slots.get("POI", "")).strip()
-            city = str(slots.get("city", "")).strip()
-            if keyword:
-                search_args: Dict[str, Any] = {"keywords": keyword}
-                if city:
-                    search_args["city"] = city
-                search_result = _run_async(
-                    _call_mcp_tool_by_spec(
-                        command=AMAP_MCP_COMMAND or None,
-                        args=AMAP_MCP_ARGS,
-                        env=amap_env,
-                        function_name=AMAP_MCP_POI_TOOL,
-                        tool_args=search_args,
-                    )
-                )
-                poi_id = _extract_poi_id_from_text_search_result(search_result)
-        if not poi_id:
-            return {"tool": {"error": "缺少可识别的地点信息（id 或关键词），无法查询详情"}}
-
-        tool_response = _run_async(
-            _call_mcp_tool_by_spec(
-                command=AMAP_MCP_COMMAND or None,
-                args=AMAP_MCP_ARGS,
-                env=amap_env,
-                function_name=AMAP_MCP_SEARCH_DETAIL_TOOL,
-                tool_args={"id": poi_id},
-            )
-        )
-        return {"tool": tool_response}
-
-    if function_name == "Route_Driving":
-        origin = str(slots.get("origin", "")).strip()
-        destination = str(slots.get("destination", "")).strip()
-        city = str(slots.get("city", "")).strip()
-        cityd = str(slots.get("cityd", "")).strip()
-        strategy = str(slots.get("strategy", "")).strip()
-
-        if not destination:
-            return {"tool": {"error": "缺少终点，无法规划驾车路径"}}
-
-        if origin:
-            origin_loc = origin if "," in origin else _resolve_address_to_location(origin, city, amap_env)
-            if not origin_loc:
-                return {"tool": {"error": "起点地址解析失败，无法规划驾车路径"}}
-        else:
-            origin_loc = ""
-
-        destination_loc = (
-            destination if "," in destination else _resolve_address_to_location(destination, cityd or city, amap_env)
-        )
-        if not destination_loc:
-            return {"tool": {"error": "终点地址解析失败，无法规划驾车路径"}}
-
-        tool_args: Dict[str, Any] = {"destination": destination_loc}
-        if origin_loc:
-            tool_args["origin"] = origin_loc
-        if strategy:
-            tool_args["strategy"] = strategy
-
-        tool_response = _run_async(
-            _call_mcp_tool_by_spec(
-                command=AMAP_MCP_COMMAND or None,
-                args=AMAP_MCP_ARGS,
-                env=amap_env,
-                function_name=AMAP_MCP_DRIVING_TOOL,
-                tool_args=tool_args,
-            )
-        )
-        return {"tool": tool_response}
-
-    if function_name == "Route_Transit_Integrated":
-        origin = str(slots.get("origin", "")).strip()
-        destination = str(slots.get("destination", "")).strip()
-        city = str(slots.get("city", "")).strip()
-        cityd = str(slots.get("cityd", "")).strip()
-
-        if not destination:
-            return {"tool": {"error": "缺少终点，无法规划公交路径"}}
-
-        tool_args: Dict[str, Any] = {"destination": destination}
-        if origin:
-            tool_args["origin"] = origin
-        if city:
-            tool_args["city"] = city
-        if cityd:
-            tool_args["cityd"] = cityd
-
-        tool_response = _run_async(
-            _call_mcp_tool_by_spec(
-                command=AMAP_MCP_COMMAND or None,
-                args=AMAP_MCP_ARGS,
-                env=amap_env,
-                function_name=AMAP_MCP_TRANSIT_TOOL,
-                tool_args=tool_args,
-            )
-        )
-        return {"tool": tool_response}
-
-    return None

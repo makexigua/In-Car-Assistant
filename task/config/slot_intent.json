@@ -236,37 +236,5 @@
     "View_Send_Record": "无",
     "View_Already_Call": "无",
     "View_Not_Call": "无",
-    "Unknown": "无",
-    "Query_Weather": {
-        "city": "city",
-        "date": "date"
-    },
-    "Search_POI": {
-        "keywords": "keywords",
-        "city": "city"
-    },
-    "Search_POI_Detail": {
-        "id": "id",
-        "keywords": "keywords",
-        "city": "city"
-    },
-    "Route_Transit_Integrated": {
-        "origin": "origin",
-        "destination": "destination",
-        "city": "city",
-        "cityd": "cityd"
-    },
-    "Search_Around_POI": {
-        "center": "center",
-        "keywords": "keywords",
-        "city": "city",
-        "radius": "radius"
-    },
-    "Route_Driving": {
-        "origin": "origin",
-        "destination": "destination",
-        "city": "city",
-        "cityd": "cityd",
-        "strategy": "strategy"
-    }
+    "Unknown": "无"
 }

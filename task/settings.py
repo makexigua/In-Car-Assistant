@@ -31,9 +31,21 @@ AMAP_MCP_COMMAND = os.getenv("AMAP_MCP_COMMAND", "")
 AMAP_MCP_ARGS = _parse_csv_env(os.getenv("AMAP_MCP_ARGS", ""))
 AMAP_MAPS_API_KEY = os.getenv("AMAP_MAPS_API_KEY", "")
 
-AMAP_MCP_WEATHER_TOOL = os.getenv("AMAP_MCP_WEATHER_TOOL", "maps_weather")
-AMAP_MCP_POI_TOOL = os.getenv("AMAP_MCP_POI_TOOL", "maps_text_search")
-AMAP_MCP_SEARCH_DETAIL_TOOL = os.getenv("AMAP_MCP_SEARCH_DETAIL_TOOL", "maps_search_detail")
-AMAP_MCP_TRANSIT_TOOL = os.getenv("AMAP_MCP_TRANSIT_TOOL", "maps_direction_transit_integrated")
-AMAP_MCP_AROUND_TOOL = os.getenv("AMAP_MCP_AROUND_TOOL", "maps_around_search")
-AMAP_MCP_DRIVING_TOOL = os.getenv("AMAP_MCP_DRIVING_TOOL", "maps_direction_driving")
+# ----------------------------------------------------------------
+# MCP 弹性配置（熔断、重试、超时）
+# ----------------------------------------------------------------
+
+MCP_CONNECT_TIMEOUT = float(os.getenv("MCP_CONNECT_TIMEOUT", "30"))
+"""MCP 连接超时（秒）。"""
+
+MCP_CALL_TIMEOUT = float(os.getenv("MCP_CALL_TIMEOUT", "30"))
+"""单次 MCP 工具调用超时（秒）。"""
+
+MCP_RETRY_MAX = int(os.getenv("MCP_RETRY_MAX", "2"))
+"""MCP 调用失败最大重试次数（不含首次）。"""
+
+MCP_CIRCUIT_BREAKER_THRESHOLD = int(os.getenv("MCP_CIRCUIT_BREAKER_THRESHOLD", "3"))
+"""熔断器触发阈值：连续失败次数。"""
+
+MCP_RECOVERY_TIMEOUT = float(os.getenv("MCP_RECOVERY_TIMEOUT", "30"))
+"""熔断器恢复超时（秒）：OPEN → HALF_OPEN 等待时间。"""

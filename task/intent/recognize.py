@@ -14,12 +14,12 @@ TASK_SYSTEM_PROMPT = (
     "如果用户输入缺少关键对象（比如只说’打开这个’），优先选择 Unknown。"
     "如果输入是百科/闲聊/推荐/翻译/无意义乱序内容，也优先选择 Unknown。"
     "注意：系统支持查天气、导航、搜地点、查路线等在线服务。"
-    "当用户问天气、温度、下雨等 → 用 Query_Weather。"
-    "当用户想要导航、开车路线、怎么去某地 → 用 Route_Driving。"
-    "当用户问怎么坐公交/地铁 → 用 Route_Transit_Integrated。"
-    "当用户要找景点/餐厅/酒店等地方 → 用 Search_POI。"
-    "当用户要查某地点的开放时间/电话/地址 → 用 Search_POI_Detail。"
-    "当用户要查附近有什么 → 用 Search_Around_POI。"
+    "当用户问天气、温度、下雨等 → 用 maps_weather。"
+    "当用户想要导航、开车路线、怎么去某地 → 用 maps_direction_driving。"
+    "当用户问怎么坐公交/地铁 → 用 maps_direction_transit_integrated。"
+    "当用户要找景点/餐厅/酒店等地方 → 用 maps_text_search。"
+    "当用户要查某地点的开放时间/电话/地址 → 用 maps_search_detail。"
+    "当用户要查附近有什么 → 用 maps_around_search。"
 )
 
 

@@ -1,92 +1,146 @@
-# 作用：封装远端 MCP 客户端连接与工具调用，供 task 执行阶段复用。
+"""
+MCP 客户端 — transport 层。
+
+行业实践：
+  - 纯传输层，不掺入业务逻辑
+  - 内置健康检查 (health_check)
+  - 调用级超时 (call_tool timeout)
+  - 断线重连 (reconnect)
+  - 异常向上抛，由上层决定重试或熔断
+"""
 
 import asyncio
 import os
-import sys
 from contextlib import AsyncExitStack
 from typing import Any, Dict, List, Optional
 
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 
+from main.utils import logger
+
 
 class MCPClient:
+    """长连接 MCP 客户端（transport 层）。"""
+
     def __init__(self):
-        """初始化 MCP 客户端。"""
         self.exit_stack = AsyncExitStack()
         self.session: Optional[ClientSession] = None
+        self._connected = False
+        self._server_params: Optional[StdioServerParameters] = None
 
-    def _build_server_params(
+    # ---- 状态 ----
+
+    @property
+    def is_connected(self) -> bool:
+        return self._connected
+
+    # ---- 连接 / 断开 ----
+
+    async def connect(
         self,
-        server_script_path: Optional[str] = None,
-        command: Optional[str] = None,
+        command: str,
         args: Optional[List[str]] = None,
         env: Optional[Dict[str, str]] = None,
-    ) -> StdioServerParameters:
+        timeout: float = 30.0,
+    ) -> List[Any]:
+        """连接 MCP 服务器，返回工具列表。
+
+        Args:
+            command: 启动命令
+            args: 命令参数
+            env: 环境变量
+            timeout: 整体连接超时（秒）
         """
-        统一构建 MCP server 启动参数。
-        - 传 command/args：走命令式启动（适配 npx 官方 MCP server）。
-        - 仅传 server_script_path：保留脚本模式兼容能力。
-        """
-        if command:
-            merged_env = os.environ.copy()
-            if env:
-                # 过滤空值，避免把空字符串覆盖系统环境变量。
-                merged_env.update({key: value for key, value in env.items() if value})
-            return StdioServerParameters(
-                command=command,
-                args=args or [],
-                env=merged_env,
-            )
+        merged_env = os.environ.copy()
+        if env:
+            merged_env.update({k: v for k, v in env.items() if v})
 
-        if not server_script_path:
-            raise ValueError("未提供 MCP server 启动参数，请传 command 或 server_script_path")
-
-        is_python = server_script_path.endswith(".py")
-        is_js = server_script_path.endswith(".js")
-        if not (is_python or is_js):
-            raise ValueError("服务器脚本必须是 .py 或 .js 文件")
-
-        script_command = sys.executable if is_python else "node"
-        return StdioServerParameters(
-            command=script_command,
-            args=[server_script_path],
-            env=None,
-        )
-
-    async def connect_to_server(
-        self,
-        server_script_path: Optional[str] = None,
-        command: Optional[str] = None,
-        args: Optional[List[str]] = None,
-        env: Optional[Dict[str, str]] = None,
-    ) -> None:
-        """连接到 MCP 服务器并列出可用工具。"""
-        server_params = self._build_server_params(
-            server_script_path=server_script_path,
+        self._server_params = StdioServerParameters(
             command=command,
-            args=args,
-            env=env,
+            args=args or [],
+            env=merged_env,
         )
 
-        # 启动 MCP 服务器并建立通信
-        stdio_transport = await self.exit_stack.enter_async_context(stdio_client(server_params))
+        stdio_transport = await self.exit_stack.enter_async_context(
+            stdio_client(self._server_params)
+        )
         self.stdio, self.write = stdio_transport
-        self.session = await self.exit_stack.enter_async_context(ClientSession(self.stdio, self.write))
+        self.session = await self.exit_stack.enter_async_context(
+            ClientSession(self.stdio, self.write)
+        )
 
-        await self.session.initialize()
+        await asyncio.wait_for(self.session.initialize(), timeout=timeout)
+        self._connected = True
 
-        # 列出 MCP 服务器上的工具
         response = await self.session.list_tools()
-        tools = response.tools
-        print("\n已连接到服务器，支持以下工具:", [tool.name for tool in tools])
+        logger.info(
+            "MCP 已连接，可用工具: %s",
+            [t.name for t in response.tools],
+        )
+        return response.tools
+
+    async def disconnect(self) -> None:
+        """断开连接，释放资源。"""
+        self._connected = False
+        await self.exit_stack.aclose()
+
+    async def reconnect(
+        self,
+        command: str,
+        args: Optional[List[str]] = None,
+        env: Optional[Dict[str, str]] = None,
+        timeout: float = 30.0,
+    ) -> bool:
+        """断线重连。"""
+        try:
+            await self.disconnect()
+            self.exit_stack = AsyncExitStack()
+            await self.connect(command, args, env, timeout=timeout)
+            return True
+        except Exception as err:
+            logger.error("[MCP] 重连失败: %s", err)
+            return False
+
+    # ---- 健康检查 ----
+
+    async def health_check(self) -> bool:
+        """轻量健康检查，用 list_tools 探测。"""
+        if not self._connected or not self.session:
+            return False
+        try:
+            await asyncio.wait_for(self.session.list_tools(), timeout=5.0)
+            return True
+        except Exception:
+            return False
+
+    # ---- 工具调用 ----
+
+    async def call_tool(
+        self,
+        name: str,
+        arguments: Dict[str, Any],
+        timeout: float = 30.0,
+    ) -> Any:
+        """调用 MCP 工具，支持超时。
+
+        Raises:
+            RuntimeError: 未连接
+            asyncio.TimeoutError: 超时
+            Exception: 调用异常
+        """
+        if not self._connected or not self.session:
+            raise RuntimeError("MCP 未连接，请先调用 connect()")
+        return await asyncio.wait_for(
+            self.session.call_tool(name, arguments),
+            timeout=timeout,
+        )
+
+    # ---- 结果解析 ----
 
     @staticmethod
-    def _extract_result_text(result: Any) -> str:
-        """
-        优先提取第一段 text 内容；没有 text 时返回 str(result)，
-        这样调用方至少能拿到可读信息用于排障。
-        """
+    def extract_text(result: Any) -> str:
+        """从 CallToolResult 中提取文本内容。"""
         try:
             content = getattr(result, "content", None) or []
             if not content:
@@ -96,39 +150,3 @@ class MCPClient:
             return str(text) if text is not None else str(first)
         except Exception:
             return str(result)
-
-    async def execute(self, function_name, tool_args):
-        print("\n🤖 MCP 客户端已启动")
-
-        try:
-            # 执行工具
-            result = await self.session.call_tool(function_name, tool_args)
-            print(f"\n\n[Calling tool with args {tool_args}]\n\n")
-            result_text = self._extract_result_text(result)
-            print(f"\n🤖 MCP Response: {result_text}")
-            return result_text
-
-        except Exception as err:
-            print(f"\n⚠️ 发生错误: {str(err)}")
-            return "Not Find"
-
-    async def cleanup(self):
-        """清理资源。"""
-        await self.exit_stack.aclose()
-
-
-async def main():
-    client = MCPClient()
-    try:
-        await client.connect_to_server(
-            command="npx",
-            args=["-y", "@amap/amap-maps-mcp-server"],
-            env={"AMAP_MAPS_API_KEY": os.getenv("AMAP_MAPS_API_KEY", "")},
-        )
-        await client.execute("maps_weather", {"city": "北京", "date": "2026-05-21"})
-    finally:
-        await client.cleanup()
-
-
-if __name__ == "__main__":
-    asyncio.run(main())

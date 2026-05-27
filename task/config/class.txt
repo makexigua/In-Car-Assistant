@@ -97,9 +97,3 @@
 96:查看拨打记录:View_Send_Record
 97:查看已接来电:View_Already_Call
 98:查看未接来电:View_Not_Call
-99:天气查询:Query_Weather
-100:地点搜索:Search_POI
-101:地点详情查询:Search_POI_Detail
-102:公交路径规划:Route_Transit_Integrated
-103:附近地点搜索:Search_Around_POI
-104:驾车路径规划:Route_Driving
