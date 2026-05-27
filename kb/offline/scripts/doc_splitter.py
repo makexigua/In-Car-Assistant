@@ -3,9 +3,8 @@ import hashlib
 import tiktoken
 from tqdm import tqdm
 from langchain_core.documents import Document
-from langchain_text_splitters import RecursiveCharacterTextSplitter
-
 from kb.offline.scripts.semantic_splitter import semantic_split
+from kb.offline.scripts.tail_splitter import TailRecursiveCharacterTextSplitter
 
 
 # 全局配置
@@ -13,7 +12,7 @@ _chunk_size = 256
 _chunk_overlap = 50
 encoding = tiktoken.get_encoding("cl100k_base")
 
-text_splitter = RecursiveCharacterTextSplitter(
+text_splitter = TailRecursiveCharacterTextSplitter(
     chunk_size=_chunk_size,
     chunk_overlap=_chunk_overlap,
     separators=[
