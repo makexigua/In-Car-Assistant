@@ -23,6 +23,7 @@ from task.settings import (
     AMAP_MCP_ARGS,
     AMAP_MCP_COMMAND,
     AMAP_MAPS_API_KEY,
+    DEFAULT_ORIGIN,
     MCP_CONNECT_TIMEOUT,
     MCP_CALL_TIMEOUT,
     MCP_RETRY_MAX,
@@ -162,6 +163,7 @@ _mcp_client: Optional[MCPClient] = None
 _initialized = False
 _mcp_function_names: set[str] = set()
 _known_mcp_tool_schemas: dict[str, dict] = {}
+_current_location: Optional[str] = None  # 缓存 IP 定位结果
 _circuit_breaker = CircuitBreaker(
     threshold=MCP_CIRCUIT_BREAKER_THRESHOLD,
     recovery_timeout=MCP_RECOVERY_TIMEOUT,
@@ -206,7 +208,7 @@ _GEO_RESOLVE_MAP: Dict[str, list[str]] = {
     "maps_bicycling": ["destination", "origin"],
     "maps_direction_walking": ["destination", "origin"],
     "maps_direction_transit_integrated": ["destination", "origin"],
-    "maps_distance": ["destination", "origin"],
+    "maps_distance": ["destination", "origins"],
 }
 
 
@@ -242,6 +244,10 @@ async def _resolve_place_to_coords(
         )
         text = client.extract_text(raw)
         result = json.loads(text) if isinstance(text, str) else text
+        # MCP server maps_geo 返回格式: {"return": [{"location": "经度,纬度", ...}]}
+        if isinstance(result, dict):
+            inner = result.get("return") or result.get("geocodes") or result
+            result = inner if isinstance(inner, list) else result
         if isinstance(result, list) and len(result) > 0:
             location = result[0].get("location", "")
             if location:
@@ -252,6 +258,61 @@ async def _resolve_place_to_coords(
     except Exception as e:
         logger.warning("[MCP] 地理编码失败 %s: %s", place_name, e)
         return None
+
+
+async def _auto_fill_origin(client: MCPClient) -> Optional[str]:
+    """自动获取当前车辆位置（坐标），用于导航/距离查询时补充缺失的起点。
+
+    优先级：缓存 > IP 定位 > DEFAULT_ORIGIN 环境变量。
+    缓存避免每个请求都走 IP 定位。
+    """
+    global _current_location
+    if _current_location is not None:
+        return _current_location
+
+    # 1) 尝试 maps_ip_location（AMAP API 不传 IP 时自动取请求来源 IP）
+    try:
+        raw = await client.call_tool(
+            "maps_ip_location",
+            {"ip": ""},
+            timeout=MCP_CALL_TIMEOUT,
+        )
+        text = client.extract_text(raw)
+        result = json.loads(text) if isinstance(text, str) else text
+        if isinstance(result, dict):
+            # maps_ip_location 返回: {"province":"...","city":"...","rectangle":"minX,minY;maxX,maxY"}
+            rectangle = result.get("rectangle", "")
+            if rectangle and ";" in rectangle:
+                parts = rectangle.split(";")
+                if len(parts) == 2:
+                    min_c = parts[0].split(",")
+                    max_c = parts[1].split(",")
+                    if len(min_c) == 2 and len(max_c) == 2:
+                        cx = (float(min_c[0]) + float(max_c[0])) / 2
+                        cy = (float(min_c[1]) + float(max_c[1])) / 2
+                        _current_location = f"{cx},{cy}"
+                        logger.info("[MCP] IP定位 → 坐标: %s", _current_location)
+                        return _current_location
+            # 无 rectangle 时用城市名做地理编码
+            city = result.get("city") or result.get("province") or ""
+            if city:
+                coords = await _resolve_place_to_coords(client, city)
+                if coords:
+                    _current_location = coords
+                    logger.info("[MCP] IP定位城市 → 坐标: %s", _current_location)
+                    return _current_location
+    except Exception as e:
+        logger.warning("[MCP] IP 定位失败: %s", e)
+
+    # 2) 兜底：环境变量 DEFAULT_ORIGIN
+    env_origin = (DEFAULT_ORIGIN or "").strip()
+    if env_origin and _is_coordinate(env_origin):
+        _current_location = env_origin
+        logger.info("[MCP] 使用 DEFAULT_ORIGIN: %s", _current_location)
+        return _current_location
+
+    logger.warning("[MCP] 无法获取当前车辆位置")
+    return None
 
 
 def _lists_known_mcp_schemas() -> dict[str, dict]:
@@ -268,7 +329,7 @@ async def _resolve_tool_arguments(
 
     当前支持的解析：
     - maps_direction_driving 等导航类工具：destination/origin 中地名 → maps_geo 解析为坐标
-    - 未指定 origin 时不补充（由 MCP 服务端处理，它默认用当前定位）
+    - 未指定 origin 时自动填充（IP 定位 → DEFAULT_ORIGIN 环境变量）
     """
     resolved = dict(arguments)
 
@@ -277,6 +338,7 @@ async def _resolve_tool_arguments(
     if not geo_params:
         return resolved
 
+    # 先对已有参数做地名→坐标解析
     for param in geo_params:
         raw_value = resolved.get(param)
         if raw_value is None or raw_value == "":
@@ -285,6 +347,14 @@ async def _resolve_tool_arguments(
             coords = await _resolve_place_to_coords(client, str(raw_value))
             if coords:
                 resolved[param] = coords
+
+    # 如果 origin（类工具的最后参数）为空，自动填充当前位置
+    origin_param = geo_params[-1]
+    if resolved.get(origin_param) is None or resolved.get(origin_param) == "":
+        current = await _auto_fill_origin(client)
+        if current:
+            logger.info("[MCP] 自动填充 %s=%s", origin_param, current)
+            resolved[origin_param] = current
 
     return resolved
 

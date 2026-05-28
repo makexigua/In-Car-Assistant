@@ -31,6 +31,10 @@ AMAP_MCP_COMMAND = os.getenv("AMAP_MCP_COMMAND", "")
 AMAP_MCP_ARGS = _parse_csv_env(os.getenv("AMAP_MCP_ARGS", ""))
 AMAP_MAPS_API_KEY = os.getenv("AMAP_MAPS_API_KEY", "")
 
+# 导航/距离查询的默认起点坐标，格式 "经度,纬度"
+# 当用户未指定起点时自动使用此值（如 "导航去上海" → origin 用此值）
+DEFAULT_ORIGIN = os.getenv("DEFAULT_ORIGIN", "")
+
 # ----------------------------------------------------------------
 # MCP 弹性配置（熔断、重试、超时）
 # ----------------------------------------------------------------
