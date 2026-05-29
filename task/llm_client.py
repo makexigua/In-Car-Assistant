@@ -3,13 +3,9 @@
 import os
 from typing import Any, Dict
 
-from openai import OpenAI
+from main.utils.llm_client import get_llm_client, is_llm_ready  # re-export is_llm_ready, used by task/pipeline.py and task/intent/recall.py
 
 from task.settings import REQUEST_TIMEOUT
-
-
-_LLM_API_KEY = os.getenv("LLM_API_KEY", "").removeprefix("Bearer ").strip()
-_LLM_BASE_URL = os.getenv("LLM_BASE_URL", "").rstrip("/")
 
 # OpenAI SDK 兼容的请求参数白名单
 _OPENAI_PARAMS = frozenset({
@@ -19,12 +15,8 @@ _OPENAI_PARAMS = frozenset({
 })
 
 
-def is_llm_ready() -> bool:
-    return bool(_LLM_API_KEY and _LLM_BASE_URL)
-
-
 def call_llm_json(payload: Dict[str, Any], timeout: float = REQUEST_TIMEOUT) -> Dict[str, Any]:
     valid_params = {k: v for k, v in payload.items() if k in _OPENAI_PARAMS and v is not None}
-    client = OpenAI(api_key=_LLM_API_KEY, base_url=_LLM_BASE_URL, timeout=timeout)
+    client = get_llm_client()
     response = client.chat.completions.create(**valid_params)
     return response.model_dump()

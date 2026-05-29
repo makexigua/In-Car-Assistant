@@ -1,9 +1,9 @@
 import os
 import json
 import re
-from openai import OpenAI
 from langchain_core.documents import Document
 from kb.offline.config.env_loader import load_project_env
+from main.utils.llm_client import get_llm_client
 
 
 load_project_env()
@@ -30,19 +30,11 @@ LLM_CHAT_PROMPT = """
 """
 
 
-RAG_LLM_TIMEOUT = float(os.getenv("RAG_LLM_TIMEOUT", "60"))
-
-llm_client = OpenAI(
-    api_key=os.getenv("LLM_API_KEY", "").removeprefix("Bearer ").strip(),
-    base_url=os.getenv("LLM_BASE_URL", "").rstrip("/"),
-    timeout=RAG_LLM_TIMEOUT,
-)
-
-
 def request_chat(query, context, stream=False):
 
     prompt = LLM_CHAT_PROMPT.format(context=context, query=query)
 
+    llm_client = get_llm_client()
     completion = llm_client.chat.completions.create(
         model=os.getenv("DEFAULT_CHAT_MODEL", ""),
         messages=[

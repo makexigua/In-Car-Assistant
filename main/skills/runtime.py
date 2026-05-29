@@ -22,7 +22,9 @@ _OPENAI_PARAMS = frozenset({
     "stop", "frequency_penalty", "presence_penalty", "seed",
 })
 
-# 这些是“运行参数”，和 prompt 文案分离，避免把大段提示词堆在 yaml 文件里。
+from main.utils.llm_client import get_llm_client
+
+# 这些是”运行参数”，和 prompt 文案分离，避免把大段提示词堆在 yaml 文件里。
 SKILL_RUNTIME_OPTIONS: Dict[str, Dict[str, Any]] = {
     "reject": {
         "model_env": "REJECT_MODEL",
@@ -195,6 +197,6 @@ def call_skill(
         extra_fields=extra_fields,
     )
 
-    client = OpenAI(api_key=LLM_API_KEY, base_url=LLM_BASE_URL, timeout=timeout)
+    client = get_llm_client()
     openai_params = _build_openai_params(payload)
     return client.chat.completions.create(**openai_params)
