@@ -23,6 +23,7 @@ const dom = {
 
 let activeAssistantMessageId = "";
 let currentTraceId = "";
+let currentAbortController = null;
 let waitingForReply = false;
 let messageSeed = 0;
 let speechRecognition = null;
@@ -118,6 +119,7 @@ async function sendQuery() {
 
   const traceId = createTraceId();
   currentTraceId = traceId;
+  currentAbortController = new AbortController();
   dom.cancelButton.style.display = "";
 
   const payload = {
@@ -132,6 +134,7 @@ async function sendQuery() {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
+      signal: currentAbortController.signal,
     });
 
     if (!response.ok) {
@@ -167,6 +170,10 @@ async function sendQuery() {
       }
     }
   } catch (error) {
+    if (error.name === "AbortError") {
+      // 用户主动中断，已由 cancelQuery 处理 finishAssistantMessage
+      return;
+    }
     finishAssistantMessage("发送失败，请稍后再试。", { isError: true });
     appendSystemMessage(error.message);
   }
@@ -174,9 +181,14 @@ async function sendQuery() {
 
 async function cancelQuery() {
   if (!currentTraceId) return;
+  // 通知后端取消
   try {
     await fetch(`/cancel/${currentTraceId}`, { method: "POST" });
   } catch { /* 忽略网络错误 */ }
+  // 断开前端 HTTP 流，停止接收后续帧
+  if (currentAbortController) {
+    currentAbortController.abort();
+  }
   finishAssistantMessage("已中断", { isError: true });
 }
 
@@ -282,6 +294,7 @@ function renderImages(messageId, images, citePages) {
 function releaseComposer() {
   activeAssistantMessageId = "";
   currentTraceId = "";
+  currentAbortController = null;
   waitingForReply = false;
   dom.cancelButton.style.display = "none";
   setComposerBusy(false);

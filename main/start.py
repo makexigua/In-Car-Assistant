@@ -159,7 +159,7 @@ def _with_heartbeat(fn, template, begin, trace_id="", heartbeat_interval=5):
     """
     在线程中执行阻塞函数 fn，等待期间每 heartbeat_interval 秒 yield 一个心跳帧，
     以保持 TCP 连接活跃，防止浏览器/代理超时断开。
-    如果 trace_id 被取消，会抛出 InterruptedError。
+    如果 trace_id 被取消或前端断开连接，会抛出 InterruptedError。
 
     使用方式（yield from 可以捕获 return 值）：
 
@@ -179,17 +179,24 @@ def _with_heartbeat(fn, template, begin, trace_id="", heartbeat_interval=5):
     t = threading.Thread(target=_worker, daemon=True)
     t.start()
 
+    last_heartbeat = time.time()
     while True:
         try:
-            kind, val = result_q.get(timeout=heartbeat_interval)
+            kind, val = result_q.get(timeout=1)
             if kind == "ok":
                 return val
             else:
                 raise val
         except queue.Empty:
+            # 优先检测中断：前端断开 或 用户手动取消
+            if request.is_disconnected():
+                raise InterruptedError(f"Client disconnected, trace_id={trace_id}")
             if trace_id and _is_cancelled(trace_id):
                 raise InterruptedError(f"Request cancelled by user, trace_id={trace_id}")
-            yield _encode_frame(copy.deepcopy(template), "PROCESSING", "", 0, time.time() - begin, status=3)
+            # 每 heartbeat_interval 秒发一次心跳帧
+            if time.time() - last_heartbeat >= heartbeat_interval:
+                last_heartbeat = time.time()
+                yield _encode_frame(copy.deepcopy(template), "PROCESSING", "", 0, time.time() - begin, status=3)
 
 
 @app.route("/agent", methods=["POST"])
