@@ -24,6 +24,7 @@ const dom = {
 let activeAssistantMessageId = "";
 let currentTraceId = "";
 let currentAbortController = null;
+let cancelled = false;
 let waitingForReply = false;
 let messageSeed = 0;
 let speechRecognition = null;
@@ -181,6 +182,7 @@ async function sendQuery() {
 
 async function cancelQuery() {
   if (!currentTraceId) return;
+  cancelled = true;
   // 通知后端取消
   try {
     await fetch(`/cancel/${currentTraceId}`, { method: "POST" });
@@ -193,6 +195,8 @@ async function cancelQuery() {
 }
 
 function handleAgentFrame(payload) {
+  if (cancelled) return;
+
   const frame = payload;
 
   if (!activeAssistantMessageId) {
@@ -295,6 +299,7 @@ function releaseComposer() {
   activeAssistantMessageId = "";
   currentTraceId = "";
   currentAbortController = null;
+  cancelled = false;
   waitingForReply = false;
   dom.cancelButton.style.display = "none";
   setComposerBusy(false);

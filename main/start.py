@@ -190,6 +190,7 @@ def _with_heartbeat(fn, template, begin, trace_id="", heartbeat_interval=5):
         except queue.Empty:
             # 检测中断：用户手动取消（前端同时会断开连接，此标记兜底保证后端停止）
             if trace_id and _is_cancelled(trace_id):
+                logger.info(f"Heartbeat detected cancel signal, stopping request, trace_id={trace_id}")
                 raise InterruptedError(f"Request cancelled by user, trace_id={trace_id}")
             # 每 heartbeat_interval 秒发一次心跳帧
             if time.time() - last_heartbeat >= heartbeat_interval:
@@ -314,11 +315,12 @@ def inference():
                 yield from _chat_stream(template, query, sender_id, trace_id, begin, ori_query)
 
         except InterruptedError as e:
-            logger.info(f'TraceID:{trace_id}, Request cancelled: {e}')
+            logger.info(f'TraceID:{trace_id}, Request cancelled, generator stopping')
             try:
                 yield _encode_frame(template, "REJECT", "", 1, time.time() - begin, status=-1)
             except Exception:
                 pass  # 前端已断开，写不写都无所谓了
+            return
         except Exception as e:
             logger.error(f'TraceID:{trace_id}, Internal Server Error!')
             logger.error(f'{e}')
