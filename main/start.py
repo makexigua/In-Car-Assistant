@@ -155,11 +155,11 @@ def _build_template(query, trace_id, begin) -> Dict[str, Any]:
     }
 
 
-def _with_heartbeat(fn, template, begin, trace_id="", heartbeat_interval=5):
+def _with_heartbeat(fn, template, begin, trace_id="", heartbeat_interval=5, total_timeout=60):
     """
     在线程中执行阻塞函数 fn，等待期间每 heartbeat_interval 秒 yield 一个心跳帧，
     以保持 TCP 连接活跃，防止浏览器/代理超时断开。
-    如果 trace_id 被取消或前端断开连接，会抛出 InterruptedError。
+    如果 trace_id 被取消或超过 total_timeout 秒，会抛出 InterruptedError。
 
     使用方式（yield from 可以捕获 return 值）：
 
@@ -179,6 +179,7 @@ def _with_heartbeat(fn, template, begin, trace_id="", heartbeat_interval=5):
     t = threading.Thread(target=_worker, daemon=True)
     t.start()
 
+    start = time.time()
     last_heartbeat = time.time()
     while True:
         try:
@@ -188,10 +189,15 @@ def _with_heartbeat(fn, template, begin, trace_id="", heartbeat_interval=5):
             else:
                 raise val
         except queue.Empty:
-            # 检测中断：用户手动取消（前端同时会断开连接，此标记兜底保证后端停止）
+            elapsed = time.time() - start
+            # 检测中断
             if trace_id and _is_cancelled(trace_id):
                 logger.info(f"Heartbeat detected cancel signal, stopping request, trace_id={trace_id}")
                 raise InterruptedError(f"Request cancelled by user, trace_id={trace_id}")
+            # 总超时保护：超过 total_timeout 秒强制终止
+            if elapsed > total_timeout:
+                logger.info(f"Request total timeout ({total_timeout}s), stopping request, trace_id={trace_id}")
+                raise InterruptedError(f"Request timed out after {elapsed:.0f}s, trace_id={trace_id}")
             # 每 heartbeat_interval 秒发一次心跳帧
             if time.time() - last_heartbeat >= heartbeat_interval:
                 last_heartbeat = time.time()
@@ -315,9 +321,11 @@ def inference():
                 yield from _chat_stream(template, query, sender_id, trace_id, begin, ori_query)
 
         except InterruptedError as e:
-            logger.info(f'TraceID:{trace_id}, Request cancelled, generator stopping')
+            logger.info(f'TraceID:{trace_id}, Request interrupted, generator stopping')
+            # 区分超时还是用户取消
+            msg = "请求超时" if "timed out" in str(e) else "请求已中断"
             try:
-                yield _encode_frame(template, "REJECT", "", 1, time.time() - begin, status=-1)
+                yield _encode_frame(template, "REJECT", msg, 1, time.time() - begin, status=-1)
             except Exception:
                 pass  # 前端已断开，写不写都无所谓了
             return
