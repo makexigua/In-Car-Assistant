@@ -212,6 +212,15 @@ textarea {
   background: var(--accent-strong);
 }
 
+.button.danger {
+  background: var(--danger);
+  color: #ffffff;
+}
+
+.button.danger:hover {
+  background: #962016;
+}
+
 .button.secondary,
 .button.icon-button {
   background: #ffffff;

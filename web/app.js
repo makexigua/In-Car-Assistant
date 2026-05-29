@@ -17,10 +17,12 @@ const dom = {
   voiceButton: document.querySelector("#voiceButton"),
   voiceStatus: document.querySelector("#voiceStatus"),
   sendButton: document.querySelector("#sendButton"),
+  cancelButton: document.querySelector("#cancelButton"),
   clearButton: document.querySelector("#clearButton"),
 };
 
 let activeAssistantMessageId = "";
+let currentTraceId = "";
 let waitingForReply = false;
 let messageSeed = 0;
 let speechRecognition = null;
@@ -72,6 +74,10 @@ function bindEvents() {
     checkConnection();
   });
 
+  dom.cancelButton.addEventListener("click", () => {
+    cancelQuery();
+  });
+
   dom.clearButton.addEventListener("click", () => {
     clearMessages();
   });
@@ -110,10 +116,14 @@ async function sendQuery() {
   dom.queryInput.value = "";
   autoResizeTextarea();
 
+  const traceId = createTraceId();
+  currentTraceId = traceId;
+  dom.cancelButton.style.display = "";
+
   const payload = {
     query,
     sender_id: createDefaultSenderId(),
-    trace_id: createTraceId(),
+    trace_id: traceId,
     enable_dm: true,
   };
 
@@ -160,6 +170,14 @@ async function sendQuery() {
     finishAssistantMessage("发送失败，请稍后再试。", { isError: true });
     appendSystemMessage(error.message);
   }
+}
+
+async function cancelQuery() {
+  if (!currentTraceId) return;
+  try {
+    await fetch(`/cancel/${currentTraceId}`, { method: "POST" });
+  } catch { /* 忽略网络错误 */ }
+  finishAssistantMessage("已中断", { isError: true });
 }
 
 function handleAgentFrame(payload) {
@@ -263,7 +281,9 @@ function renderImages(messageId, images, citePages) {
 
 function releaseComposer() {
   activeAssistantMessageId = "";
+  currentTraceId = "";
   waitingForReply = false;
+  dom.cancelButton.style.display = "none";
   setComposerBusy(false);
 }
 

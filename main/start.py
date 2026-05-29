@@ -18,6 +18,20 @@ warnings.filterwarnings("ignore", category=UserWarning, module="jieba")
 # 抑制第三方库的过期警告（如 jieba 的 pkg_resources）
 warnings.filterwarnings("ignore", category=UserWarning, module="jieba")
 
+# 请求取消共享状态（trace_id → bool）
+_cancelled: Dict[str, bool] = {}
+_cancel_lock = threading.Lock()
+
+
+def _is_cancelled(trace_id: str) -> bool:
+    with _cancel_lock:
+        return _cancelled.get(trace_id, False)
+
+
+def _mark_cancelled(trace_id: str):
+    with _cancel_lock:
+        _cancelled[trace_id] = True
+
 from main.client.arbitration import request_arbitration
 from main.client.task import request_task
 from main.client.rag import request_rag
@@ -72,6 +86,13 @@ INTENT_META = {
 @app.route("/health", methods=["GET"])
 def check():
     return make_response(jsonify(health="healthy"), 200)
+
+
+@app.route("/cancel/<trace_id>", methods=["POST"])
+def cancel(trace_id):
+    _mark_cancelled(trace_id)
+    logger.info(f"Request cancelled by user, trace_id={trace_id}")
+    return make_response(jsonify(cancelled=True), 200)
 
 
 @app.route("/debug/session/<sender_id>", methods=["GET"])
@@ -134,10 +155,11 @@ def _build_template(query, trace_id, begin) -> Dict[str, Any]:
     }
 
 
-def _with_heartbeat(fn, template, begin, heartbeat_interval=5):
+def _with_heartbeat(fn, template, begin, trace_id="", heartbeat_interval=5):
     """
     在线程中执行阻塞函数 fn，等待期间每 heartbeat_interval 秒 yield 一个心跳帧，
     以保持 TCP 连接活跃，防止浏览器/代理超时断开。
+    如果 trace_id 被取消，会抛出 InterruptedError。
 
     使用方式（yield from 可以捕获 return 值）：
 
@@ -165,6 +187,8 @@ def _with_heartbeat(fn, template, begin, heartbeat_interval=5):
             else:
                 raise val
         except queue.Empty:
+            if trace_id and _is_cancelled(trace_id):
+                raise InterruptedError(f"Request cancelled by user, trace_id={trace_id}")
             yield _encode_frame(copy.deepcopy(template), "PROCESSING", "", 0, time.time() - begin, status=3)
 
 
@@ -191,8 +215,11 @@ def inference():
 
             # 1) 拒识（用心跳保护，防止 LLM 响应慢导致连接断开）
             reject_result = yield from _with_heartbeat(
-                lambda: request_reject(ori_query, trace_id), template, begin
+                lambda: request_reject(ori_query, trace_id), template, begin, trace_id=trace_id
             )
+            if _is_cancelled(trace_id):
+                logger.info(f"Request cancelled after reject, trace_id={trace_id}")
+                return
             if not is_reject_passed(reject_result):
                 yield _encode_frame(template, "REJECT", "", 1, time.time() - begin, status=-1)
                 logger.info(f"Query {ori_query} rejected by reject model.")
@@ -203,21 +230,30 @@ def inference():
 
             # 3) 改写（用心跳保护）
             query = yield from _with_heartbeat(
-                lambda: request_rewrite(ori_query, sender_id, trace_id), template, begin
+                lambda: request_rewrite(ori_query, sender_id, trace_id), template, begin, trace_id=trace_id
             )
+            if _is_cancelled(trace_id):
+                logger.info(f"Request cancelled after rewrite, trace_id={trace_id}")
+                return
 
             # 4) 仲裁（用心跳保护），返回 (route, function_scope)
             arbitration_result, function_scope = yield from _with_heartbeat(
-                lambda: request_arbitration(query, sender_id, trace_id), template, begin
+                lambda: request_arbitration(query, sender_id, trace_id), template, begin, trace_id=trace_id
             )
+            if _is_cancelled(trace_id):
+                logger.info(f"Request cancelled after arbitration, trace_id={trace_id}")
+                return
             logger.info(f"TraceID:{trace_id}, query:{query}, route:{arbitration_result}, scope:{function_scope}")
 
             # 5) 任务链路（可能耗时较长，用心跳包装防止连接断开）
             if arbitration_result == "task":
                 response_payload = yield from _with_heartbeat(
                     lambda: request_task(query, trace_id, enable_dm, function_scope=function_scope),
-                    template, begin
+                    template, begin, trace_id=trace_id
                 )
+                if _is_cancelled(trace_id):
+                    logger.info(f"Request cancelled during task pipeline, trace_id={trace_id}")
+                    return
                 nlg_content = response_payload.get("nlg", "")
                 has_function = response_payload.get("function", "Unknown") not in ["Unknown", ""]
                 if nlg_content or has_function:
@@ -249,8 +285,11 @@ def inference():
                     return _result
 
                 rag_result = yield from _with_heartbeat(
-                    _request_rag_with_images, template, begin
+                    _request_rag_with_images, template, begin, trace_id=trace_id
                 )
+                if _is_cancelled(trace_id):
+                    logger.info(f"Request cancelled during rag pipeline, trace_id={trace_id}")
+                    return
                 answer = rag_result.get("answer", "")
                 if answer:
                     rag_payload = _build_template(ori_query, trace_id, begin)
@@ -269,6 +308,9 @@ def inference():
             else:
                 yield from _chat_stream(template, query, sender_id, trace_id, begin, ori_query)
 
+        except InterruptedError as e:
+            logger.info(f'TraceID:{trace_id}, Request cancelled: {e}')
+            yield _encode_frame(template, "REJECT", "", 1, time.time() - begin, status=-1)
         except Exception as e:
             logger.error(f'TraceID:{trace_id}, Internal Server Error!')
             logger.error(f'{e}')
@@ -286,12 +328,15 @@ def _chat_stream(template, query, sender_id, trace_id, begin, ori_query):
 
     full_answer = ""
     result_q = queue.Queue()
+    chat_stop = threading.Event()
 
     def _worker():
         """在后台线程中执行 LLM 流式调用，逐 token 放入队列。"""
         try:
             chat_handler = request_chat(query, sender_id, trace_id)
             for value in process_chat(chat_handler, query, sender_id):
+                if chat_stop.is_set():
+                    return
                 result_q.put(("token", value))
             result_q.put(("done", None))
         except BaseException as e:
@@ -302,6 +347,10 @@ def _chat_stream(template, query, sender_id, trace_id, begin, ori_query):
 
     is_hit = False
     while True:
+        if _is_cancelled(trace_id):
+            chat_stop.set()
+            logger.info(f"Chat stream cancelled by user, trace_id={trace_id}")
+            break
         try:
             kind, val = result_q.get(timeout=5)
             if kind == "token":
