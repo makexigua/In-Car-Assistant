@@ -30,7 +30,7 @@ LLM_CHAT_PROMPT = """
 """
 
 
-def request_chat(query, context, stream=False):
+def request_chat(query, context, stream=False, timeout=60.0):
 
     prompt = LLM_CHAT_PROMPT.format(context=context, query=query)
 
@@ -49,7 +49,8 @@ def request_chat(query, context, stream=False):
         extra_body={
             "top_k": 1,
             "chat_template_kwargs": {"enable_thinking": False}
-        }
+        },
+        timeout=timeout,
     )
     if not stream:
         result = completion.choices[0].message.content

@@ -199,4 +199,4 @@ def call_skill(
 
     client = get_llm_client()
     openai_params = _build_openai_params(payload)
-    return client.chat.completions.create(**openai_params)
+    return client.chat.completions.create(**openai_params, timeout=timeout)

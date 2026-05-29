@@ -18,5 +18,5 @@ _OPENAI_PARAMS = frozenset({
 def call_llm_json(payload: Dict[str, Any], timeout: float = REQUEST_TIMEOUT) -> Dict[str, Any]:
     valid_params = {k: v for k, v in payload.items() if k in _OPENAI_PARAMS and v is not None}
     client = get_llm_client()
-    response = client.chat.completions.create(**valid_params)
+    response = client.chat.completions.create(**valid_params, timeout=timeout)
     return response.model_dump()
