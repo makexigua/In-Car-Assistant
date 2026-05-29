@@ -18,13 +18,19 @@ VALID_CODES = {"A1", "A2", "B", "C", "D"}
 
 
 def _extract_code_from_stream(stream: Stream[ChatCompletionChunk]) -> str:
-    code = "A2"
+    """
+    从流式响应中提取仲裁代码。
+    模型可能分多个 token 输出 A1/A2（如 "A" + "1"），
+    因此不能只取第一个非空 chunk，需要累积到匹配有效代码为止。
+    """
+    code = ""
     for chunk in stream:
-        content = chunk.choices[0].delta.content or ""
-        if content:
-            code = content.strip()
-            break
-    return code
+        part = chunk.choices[0].delta.content or ""
+        if part:
+            code += part.strip()
+            if code in VALID_CODES:
+                return code
+    return "A2"
 
 
 def _to_route(code: str) -> Tuple[str, str]:
