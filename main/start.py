@@ -188,9 +188,7 @@ def _with_heartbeat(fn, template, begin, trace_id="", heartbeat_interval=5):
             else:
                 raise val
         except queue.Empty:
-            # 优先检测中断：前端断开 或 用户手动取消
-            if request.is_disconnected():
-                raise InterruptedError(f"Client disconnected, trace_id={trace_id}")
+            # 检测中断：用户手动取消（前端同时会断开连接，此标记兜底保证后端停止）
             if trace_id and _is_cancelled(trace_id):
                 raise InterruptedError(f"Request cancelled by user, trace_id={trace_id}")
             # 每 heartbeat_interval 秒发一次心跳帧
@@ -317,7 +315,10 @@ def inference():
 
         except InterruptedError as e:
             logger.info(f'TraceID:{trace_id}, Request cancelled: {e}')
-            yield _encode_frame(template, "REJECT", "", 1, time.time() - begin, status=-1)
+            try:
+                yield _encode_frame(template, "REJECT", "", 1, time.time() - begin, status=-1)
+            except Exception:
+                pass  # 前端已断开，写不写都无所谓了
         except Exception as e:
             logger.error(f'TraceID:{trace_id}, Internal Server Error!')
             logger.error(f'{e}')
