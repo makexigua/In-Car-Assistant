@@ -3,25 +3,13 @@ import pickle
 
 import jieba
 import numpy as np
-import torch
 from tqdm import tqdm
 from langchain_core.documents import Document
 from langchain_community.retrievers import BM25Retriever
-from pymilvus import (
-    connections,
-    utility,
-    FieldSchema,
-    CollectionSchema,
-    DataType,
-    Collection,
-)
-from pymilvus.model.hybrid import BGEM3EmbeddingFunction
 
 from kb.offline.config.settings import (
     bm25_pickle_path,
     stopwords_path,
-    milvus_db_path,
-    EMBEDDING_MODEL,
     PROCESSED_INDEX_DIR,
 )
 from kb.offline.config.mongodb_config import MongoConfig
@@ -34,12 +22,6 @@ load_project_env()
 with open(stopwords_path) as fd:
     _stopwords = [t.strip() for t in fd.readlines()]
 
-# Milvus 配置
-EMB_BATCH = 50
-MAX_TEXT_LENGTH = 512
-ID_MAX_LENGTH = 100
-MILVUS_COL_NAME = "hybrid_bge_m3"
-
 # FAISS 配置
 FAISS_INDEX_PATH = str(PROCESSED_INDEX_DIR / "faiss.index")
 FAISS_IDS_PATH = str(PROCESSED_INDEX_DIR / "faiss_ids.pkl")
@@ -51,7 +33,7 @@ def _tokenize(text: str) -> list[str]:
 
 
 class IndexBuilder:
-    """统一索引构建器：负责将文档写入 MongoDB、Milvus、BM25、FAISS。
+    """统一索引构建器：负责将文档写入 MongoDB、BM25、FAISS。
 
     Args:
         retrieval_docs: 子块 + 小父块 → 写入 FAISS/BM25（检索索引）
@@ -71,7 +53,6 @@ class IndexBuilder:
         self.build_faiss()
         self.build_bm25()
         self.build_mongodb()
-        # self.build_milvus()
 
     def build_mongodb(self, collection_name: str = "manual_text"):
         """将所有文档写入 MongoDB（父子都存，供 FAISS 回查 + merge_docs 替换为父块）。"""
@@ -153,81 +134,4 @@ class IndexBuilder:
 
         return all_embeddings
 
-    def build_milvus(self, collection_name: str = MILVUS_COL_NAME):
-        """构建 Milvus 向量索引。"""
-        self._connect_milvus()
-
-        embedding_device = os.getenv(
-            "RAG_EMBED_DEVICE",
-            "cuda" if torch.cuda.is_available() else "cpu",
-        )
-        embedding_handler = BGEM3EmbeddingFunction(
-            model_name=EMBEDDING_MODEL,
-            device=embedding_device,
-        )
-
-        fields = [
-            FieldSchema(
-                name="unique_id",
-                dtype=DataType.VARCHAR,
-                is_primary=True,
-                max_length=ID_MAX_LENGTH,
-            ),
-            FieldSchema(
-                name="text",
-                dtype=DataType.VARCHAR,
-                max_length=MAX_TEXT_LENGTH,
-            ),
-            FieldSchema(name="sparse_vector", dtype=DataType.SPARSE_FLOAT_VECTOR),
-            FieldSchema(
-                name="dense_vector",
-                dtype=DataType.FLOAT_VECTOR,
-                dim=embedding_handler.dim["dense"],
-            ),
-        ]
-        schema = CollectionSchema(fields)
-
-        if utility.has_collection(collection_name):
-            Collection(collection_name).drop()
-
-        col = Collection(collection_name, schema, consistency_level="Strong")
-
-        sparse_index = {"index_type": "SPARSE_INVERTED_INDEX", "metric_type": "IP"}
-        dense_index = {"index_type": "AUTOINDEX", "metric_type": "IP"}
-        col.create_index("sparse_vector", sparse_index)
-        col.create_index("dense_vector", dense_index)
-        col.load()
-
-        raw_texts = [doc.page_content for doc in self.retrieval_docs]
-        unique_ids = [doc.metadata["unique_id"] for doc in self.retrieval_docs]
-        texts_embeddings = embedding_handler(raw_texts)
-
-        for i in range(0, len(self.retrieval_docs), EMB_BATCH):
-            batched_entities = [
-                unique_ids[i : i + EMB_BATCH],
-                raw_texts[i : i + EMB_BATCH],
-                texts_embeddings["sparse"][i : i + EMB_BATCH],
-                texts_embeddings["dense"][i : i + EMB_BATCH],
-            ]
-            col.insert(batched_entities)
-
-        print(f"Milvus 索引构建完成，集合 {collection_name}，共 {col.num_entities} 条")
-
-    @staticmethod
-    def _connect_milvus():
-        """连接 Milvus。"""
-        if connections.has_connection("default"):
-            return
-
-        milvus_uri = os.getenv("MILVUS_URI", "").strip()
-        milvus_host = os.getenv("MILVUS_HOST", "").strip()
-        milvus_port = os.getenv("MILVUS_PORT", "19530").strip()
-
-        if milvus_uri:
-            connections.connect(uri=milvus_uri)
-            return
-        if milvus_host:
-            connections.connect(host=milvus_host, port=milvus_port)
-            return
-
-        connections.connect(uri=milvus_db_path)
+    # Milvus 索引曾在此构建，当前未启用；如需启用可参考 git history 恢复 build_milvus()。

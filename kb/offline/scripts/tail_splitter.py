@@ -6,8 +6,7 @@ LangChain 原版 RecursiveCharacterTextSplitter 在分割时，
 本模块修正此行为，让分隔符始终归属前一块。
 """
 
-import re
-from typing import List, Optional
+from typing import List
 
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 

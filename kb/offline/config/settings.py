@@ -44,7 +44,10 @@ def _ensure_kb_data_dirs() -> None:
 _ensure_kb_data_dirs()
 
 # 数据路径
+# 默认输入 PDF（兼容旧版）
 pdf_path = str(RAW_DATA_DIR / "Tesla_Manual.pdf")
+# 通用输入路径：可以是文件或目录，供 pipeline --file/--dir 使用
+input_path = pdf_path
 stopwords_path = str(RAW_DATA_DIR / "stopwords.txt")
 image_save_dir = str(PROCESSED_IMAGES_DIR)
 raw_docs_path = str(PROCESSED_DOCS_DIR / "raw_docs.pkl")

@@ -1,5 +1,4 @@
 import os
-from pprint import pprint
 from pymongo import MongoClient
 from pymongo.errors import ConnectionFailure, ConfigurationError
 

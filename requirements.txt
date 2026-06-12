@@ -28,6 +28,11 @@ pymongo
 pymilvus[model]
 PyMuPDF
 
+# Document file parsers
+python-docx
+openpyxl
+python-pptx
+
 # ML / embedding
 pandas
 scikit-learn

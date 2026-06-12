@@ -1,18 +1,18 @@
+"""
+PDF 图片处理 — 从 PDF 页面提取图片、保存、识别标题。
+
+原位于 kb/offline/scripts/image_handler.py，已迁移至此。
+"""
 
 import os
+from typing import Dict, List, Tuple
+
 import fitz
-from typing import Tuple
-from pymongo.collection import Collection
-from typing_extensions import List
 
 from kb.offline.config import settings
-from kb.offline.config.models import ManualImages
-from kb.offline.config.mongodb_config import MongoConfig
+from kb.offline.config.models import DocImages
 
-# 全局配置
-manual_images_collection: Collection = MongoConfig.get_collection("manual_images")
 image_save_dir = settings.image_save_dir
-pdf_path = settings.pdf_path
 
 
 # 标题判断配置
@@ -22,11 +22,33 @@ TITLE_PROPERTIES = {
     "max_length": 30,
     "bold_weight": 0.7,
     "page_clip": 50,
-    "bottom_size": -200
+    "bottom_size": -200,
 }
 
 
-def handle_image(img: Tuple, img_index: int, page: fitz.Page) -> ManualImages | None:
+def handle_page_images(
+    images: List[Tuple], page: fitz.Page
+) -> List[Dict]:
+    """
+    处理页面中的所有图片。
+
+    Args:
+        images: page.get_images(full=True) 的结果
+        page: fitz.Page 对象
+
+    Returns:
+        List[Dict]: 每张图片的 {image_path, page, title} 信息
+    """
+    import json
+    images_info = []
+    for img_index, img in enumerate(images):
+        manual_image = handle_image(img, img_index, page)
+        if manual_image:
+            images_info.append(json.loads(manual_image.json()))
+    return images_info
+
+
+def handle_image(img: Tuple, img_index: int, page: fitz.Page):
     """处理单个图片"""
     xref = img[0]
     base_image = page.parent.extract_image(xref)
@@ -46,10 +68,10 @@ def handle_image(img: Tuple, img_index: int, page: fitz.Page) -> ManualImages | 
     related_blocks = get_related_text_blocks(page, expanded_rect, img_rect.y0)
     title_blocks = [text for is_title, text in related_blocks if is_title]
 
-    return ManualImages(
+    return DocImages(
         image_path=image_path,
         page=page.number + 1,
-        title="\n".join(title_blocks)
+        title="\n".join(title_blocks),
     )
 
 
@@ -64,13 +86,19 @@ def save_image(base_image: dict, img_index: int, page_number: int) -> str:
 
 def get_expanded_rect(img_rect: fitz.Rect, page_rect: fitz.Rect) -> fitz.Rect:
     """获取扩展后的搜索区域"""
-    #expanded = img_rect + (0, -15, 0, img_rect.height * 3)
-    expanded = img_rect + (0, TITLE_PROPERTIES["bottom_size"], 0, img_rect.height * 3)
+    expanded = img_rect + (
+        0,
+        TITLE_PROPERTIES["bottom_size"],
+        0,
+        img_rect.height * 3,
+    )
     expanded[3] = min(expanded[3], page_rect[3] - TITLE_PROPERTIES["page_clip"])
     return expanded.intersect(page_rect)
 
 
-def get_related_text_blocks(page: fitz.Page, rect: fitz.Rect, img_y: float) -> List[Tuple[bool, str]]:
+def get_related_text_blocks(
+    page: fitz.Page, rect: fitz.Rect, img_y: float
+) -> List[Tuple[bool, str]]:
     """获取与图片相关的文本块"""
     related_blocks = []
     for block in page.get_text("blocks"):
@@ -101,14 +129,14 @@ def is_title_block_candidate(page: fitz.Page, block: tuple, above: bool) -> bool
     is_bold = "bold" in span["font"].lower()
 
     # 排除带句尾标点的文本
-    if text.endswith(('.', '。', '!', '！')):
+    if text.endswith((".", "。", "!", "！")):
         return False
 
     # 计分规则
     score = 0
     score += 2 if font_size >= TITLE_PROPERTIES["min_size"] else 0
     score += 1 if is_bold else 0
-    score += 0.5 if (text.count('\n') + 1) <= TITLE_PROPERTIES["max_lines"] else 0
+    score += 0.5 if (text.count("\n") + 1) <= TITLE_PROPERTIES["max_lines"] else 0
     score += 0.5 if len(text) <= TITLE_PROPERTIES["max_length"] else 0
     score += 2 if above else -1
 
